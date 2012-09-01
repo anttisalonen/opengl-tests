@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <cassert>
 #include <fstream>
 #include <iostream>
 
@@ -12,7 +13,7 @@ static const int screenHeight = 600;
 
 class App {
 	public:
-		App();
+		App(int mode);
 		void run();
 
 	private:
@@ -21,6 +22,7 @@ class App {
 
 		SDL_Surface* mScreen;
 		GLuint mProgramObject;
+		int mMode;
 };
 
 GLuint App::loadShaderFromFile(GLenum type, const char* filename)
@@ -67,7 +69,8 @@ GLuint App::loadShader(GLenum type, const char* src)
 	return shader;
 }
 
-App::App()
+App::App(int mode)
+	: mMode(mode)
 {
 	if (SDL_Init(SDL_INIT_EVERYTHING) == -1) {
 		std::cerr << "Unable to init SDL: " << SDL_GetError() << "\n";
@@ -101,8 +104,21 @@ App::App()
 		exit(1);
 	}
 
-	vshader = loadShaderFromFile(GL_VERTEX_SHADER, "simple.vert");
-	fshader = loadShaderFromFile(GL_FRAGMENT_SHADER, "simple.frag");
+	switch(mMode) {
+		case 0:
+			vshader = loadShaderFromFile(GL_VERTEX_SHADER, "simple.vert");
+			fshader = loadShaderFromFile(GL_FRAGMENT_SHADER, "simple.frag");
+			break;
+
+		case 1:
+			vshader = loadShaderFromFile(GL_VERTEX_SHADER, "colors.vert");
+			fshader = loadShaderFromFile(GL_FRAGMENT_SHADER, "colors.frag");
+			break;
+
+		default:
+			assert(0);
+			break;
+	}
 
 	mProgramObject = glCreateProgram();
 
@@ -114,8 +130,20 @@ App::App()
 	glAttachShader(mProgramObject, vshader);
 	glAttachShader(mProgramObject, fshader);
 
-	glBindAttribLocation(mProgramObject, 0, "vPosition");
+	switch(mMode) {
+		case 0:
+			glBindAttribLocation(mProgramObject, 0, "vPosition");
+			break;
 
+		case 1:
+			glBindAttribLocation(mProgramObject, 0, "a_Position");
+			glBindAttribLocation(mProgramObject, 1, "a_Color");
+			break;
+
+		default:
+			assert(0);
+			break;
+	}
 	glLinkProgram(mProgramObject);
 
 	glGetProgramiv(mProgramObject, GL_LINK_STATUS, &linked);
@@ -135,13 +163,6 @@ App::App()
 		glDeleteProgram(mProgramObject);
 		exit(1);
 	}
-}
-
-void App::run()
-{
-	GLfloat vertices[] = {0.0f, 0.5f, 0.0f,
-		-0.5f, -0.5f, 0.0f,
-		0.5f, -0.5f, 0.0f};
 
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glViewport(0, 0, screenWidth, screenHeight);
@@ -149,19 +170,93 @@ void App::run()
 
 	glUseProgram(mProgramObject);
 
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vertices);
-	glEnableVertexAttribArray(0);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+void App::run()
+{
+	switch(mMode) {
+		case 0:
+			{
+				GLfloat vertices[] = {0.0f, 0.5f, 0.0f,
+					-0.5f, -0.5f, 0.0f,
+					0.5f, -0.5f, 0.0f};
+
+				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vertices);
+				glEnableVertexAttribArray(0);
+				glDrawArrays(GL_TRIANGLES, 0, 3);
+			}
+			break;
+
+		case 1:
+			{
+				GLfloat vertices[] = {-0.5, 0.5, 0.0,
+					-0.5, -0.5, 0.0,
+					0.5, -0.5, 0.0,
+					0.5,  0.5, 0.0,
+					-0.5, 0.5, 1.0,
+					-0.5, -0.5, 1.0,
+					0.5, -0.5, 1.0,
+					0.5,  0.5, 1.0};
+				GLfloat colors[] = {1.0, 1.0, 1.0, 1.0,
+					1.0, 0.0, 1.0, 1.0,
+					1.0, 0.0, 0.0, 1.0,
+					1.0, 1.0, 0.0, 1.0,
+					0.0, 1.0, 0.0, 1.0,
+					0.0, 1.0, 1.0, 1.0,
+					0.0, 0.0, 1.0, 1.0,
+					0.0, 0.0, 0.0, 1.0};
+
+				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vertices);
+				glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, colors);
+				glEnableVertexAttribArray(0);
+				glEnableVertexAttribArray(1);
+				GLushort indices[] = {0, 1, 2,
+					0, 2, 3,
+					0, 3, 7,
+					0, 7, 4,
+					0, 4, 5,
+					0, 5, 1,
+					3, 2, 6,
+					3, 6, 7};
+				glDrawElements(GL_TRIANGLES, sizeof(indices) / sizeof(GLushort),
+						GL_UNSIGNED_SHORT, indices);
+			}
+			break;
+
+		default:
+			assert(0);
+			break;
+	}
 
 	SDL_GL_SwapBuffers();
 
-	sleep(4);
+	sleep(3);
 }
 
-int main(void)
+void usage(const char* p)
 {
+	std::cerr << "Usage: " << p << " [--colors]\n";
+}
+
+int main(int argc, char** argv)
+{
+	int mode = 0;
+	if(argc != 1) {
+		if(argc != 2) {
+			std::cerr << "Unknown parameters.\n";
+			usage(argv[0]);
+			exit(1);
+		}
+		if(!strcmp(argv[1], "--colors")) {
+			mode = 1;
+		} else {
+			std::cerr << "Unknown parameters.\n";
+			usage(argv[0]);
+			exit(1);
+		}
+	}
 	try {
-		App app;
+		App app(mode);
 		app.run();
 	} catch(std::exception& e) {
 		std::cerr << "std::exception: " << e.what() << "\n";
