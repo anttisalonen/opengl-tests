@@ -14,6 +14,7 @@
 #include "libcommon/Math.h"
 #include "libcommon/Vector3.h"
 #include "libcommon/Matrix44.h"
+#include "libcommon/Texture.h"
 
 using namespace Common;
 
@@ -40,6 +41,15 @@ GLfloat cubecolors[] = {1.0, 1.0, 1.0, 1.0,
 	0.0, 1.0, 1.0, 1.0,
 	0.0, 0.0, 1.0, 1.0,
 	0.0, 0.0, 0.0, 1.0};
+GLfloat cubetexcoords[] = {0, 1,
+	0, 0,
+	1, 0,
+	1, 1,
+	1, 0,
+	1, 1,
+	1, 0,
+	0, 0};
+
 
 GLushort cubeindices[] = {0, 1, 2,
                        0, 2, 3,
@@ -71,6 +81,7 @@ class App {
 		static Matrix44 rotationMatrixFromEuler(const Vector3& v);
 		static Matrix44 perspectiveMatrix(float fov);
 		static Matrix44 cameraRotationMatrix(const Vector3& tgt, const Vector3& up);
+		static GLuint loadTexture(const char* filename);
 
 		GLuint mProgramObject;
 
@@ -83,6 +94,23 @@ class App {
 		SDL_Surface* mScreen;
 		bool mInit;
 };
+
+GLuint App::loadTexture(const char* filename)
+{
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	GLuint texture = Texture::loadTexture(filename);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	if (GLEW_VERSION_3_0) {
+		glGenerateMipmap(GL_TEXTURE_2D);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	} else {
+		/* TODO: add mipmap generation */
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	}
+	return texture;
+}
 
 Matrix44 App::translationMatrix(const Vector3& v)
 {
@@ -276,6 +304,63 @@ class Camera : public Perspective {
 		Vector3 upwardsMovement();
 		void handleMouseMove(int xdiff, int ydiff);
 };
+
+class Textures : public Camera {
+	public:
+		virtual const char* getVertexShaderFilename() override;
+		virtual const char* getFragmentShaderFilename() override;
+		virtual void bindAttributes() override;
+		virtual void postInit() override;
+		virtual void draw() override;
+
+	protected:
+		GLint mSTextLoc;
+		GLuint mTexID;
+};
+
+const char* Textures::getVertexShaderFilename()
+{
+	return "textures.vert";
+}
+
+const char* Textures::getFragmentShaderFilename()
+{
+	return "textures.frag";
+}
+
+void Textures::postInit()
+{
+	mMVPLoc = glGetUniformLocation(mProgramObject, "u_MVP");
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LEQUAL);
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, cubevertices);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cubetexcoords);
+	mSTextLoc = glGetUniformLocation(mProgramObject, "s_texture");
+	std::cout << "mSTextLoc: " << mSTextLoc << "\n";
+	mTexID = App::loadTexture("snow.jpg");
+	std::cout << "mTexID: " << mTexID << "\n";
+	glEnable(GL_TEXTURE_2D);
+}
+
+void Textures::draw()
+{
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, mTexID);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glUniform1i(mSTextLoc, 0);
+
+	Camera::draw();
+}
+
+void Textures::bindAttributes()
+{
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+	glBindAttribLocation(mProgramObject, 0, "a_Position");
+	glBindAttribLocation(mProgramObject, 1, "a_Texcoord");
+}
 
 Vector3 Camera::WorldForward = Vector3(1, 0, 0);
 Vector3 Camera::WorldUp      = Vector3(0, 0, 1);
@@ -694,6 +779,8 @@ int main(int argc, char** argv)
 			app = new Perspective();
 		} else if(!strcmp(argv[1], "--camera")) {
 			app = new Camera();
+		} else if(!strcmp(argv[1], "--textures")) {
+			app = new Textures();
 		} else {
 			std::cerr << "Unknown parameters.\n";
 			usage(argv[0]);
