@@ -186,6 +186,7 @@ class App {
 		static GLuint loadTexture(const char* filename);
 
 		GLuint mProgramObject;
+		std::map<const char*, GLint> mUniformLocationMap;
 
 	private:
 		void init();
@@ -353,6 +354,10 @@ void App::init()
 
 	postInit();
 
+	for(auto& p : mUniformLocationMap) {
+		p.second = glGetUniformLocation(mProgramObject, p.first);
+	}
+
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glViewport(0, 0, screenWidth, screenHeight);
 
@@ -492,8 +497,8 @@ class Rotate : public Colors {
 		virtual Matrix44 calculateModelviewMatrix(const Matrix44& m) const;
 		void updatePosition();
 		void updateModelviewMatrix();
+		void enableDepthTest();
 
-		GLint mMVPLoc;
 		Vector3 mPos;
 		Vector3 mRot;
 		Vector3 mPosDelta;
@@ -546,33 +551,29 @@ class Textures : public Camera {
 		virtual void draw() override;
 
 	protected:
-		GLint mSTextLoc;
-		GLuint mTexID;
+		void setupTexturing();
 
+		GLuint mTexID;
 		Model mModel;
+		bool mUseVBOs;
 };
 
 class AmbientLight : public Textures {
 	public:
+		AmbientLight();
 		virtual const char* getFragmentShaderFilename() override;
 		virtual void postInit() override;
 		virtual void draw() override;
-
-	protected:
-		GLint mAmbientLoc;
 };
 
 class DirectionalLight : public AmbientLight {
 	public:
+		DirectionalLight();
 		virtual const char* getVertexShaderFilename() override;
 		virtual const char* getFragmentShaderFilename() override;
 		virtual void bindAttributes() override;
 		virtual void postInit() override;
 		virtual void draw() override;
-
-	protected:
-		GLint mDirectionalLightDirLoc;
-		GLint mDirectionalLightColorLoc;
 };
 
 const char* Triangle::getVertexShaderFilename()
@@ -633,6 +634,7 @@ Rotate::Rotate()
 				Math::degreesToRadians(150),
 				Math::degreesToRadians(38)))
 {
+	mUniformLocationMap["u_MVP"] = -1;
 }
 
 const char* Rotate::getVertexShaderFilename()
@@ -648,7 +650,11 @@ const char* Rotate::getFragmentShaderFilename()
 void Rotate::postInit()
 {
 	Colors::postInit();
-	mMVPLoc = glGetUniformLocation(mProgramObject, "u_MVP");
+	enableDepthTest();
+}
+
+void Rotate::enableDepthTest()
+{
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 }
@@ -670,7 +676,7 @@ void Rotate::updateModelviewMatrix()
 {
 	auto modelview = calculateModelviewMatrix(Matrix44::Identity);
 
-	glUniformMatrix4fv(mMVPLoc, 1, GL_FALSE, modelview.m);
+	glUniformMatrix4fv(mUniformLocationMap["u_MVP"], 1, GL_FALSE, modelview.m);
 }
 
 void Rotate::draw()
@@ -861,11 +867,13 @@ void Camera::handleMouseMove(int xdiff, int ydiff)
 }
 
 Textures::Textures()
-	: mModel(Model("textured-cube.obj"))
+	: mModel(Model("textured-cube.obj")),
+	mUseVBOs(false)
 {
 	assert(mModel.getVertexCoords().size());
 	assert(mModel.getTexCoords().size());
 	assert(mModel.getIndices().size());
+	mUniformLocationMap["s_texture"] = -1;
 }
 
 const char* Textures::getVertexShaderFilename()
@@ -880,13 +888,15 @@ const char* Textures::getFragmentShaderFilename()
 
 void Textures::postInit()
 {
-	mMVPLoc = glGetUniformLocation(mProgramObject, "u_MVP");
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
+	enableDepthTest();
 
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, &mModel.getVertexCoords()[0]);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, &mModel.getTexCoords()[0]);
-	mSTextLoc = glGetUniformLocation(mProgramObject, "s_texture");
+	setupTexturing();
+}
+
+void Textures::setupTexturing()
+{
 	mTexID = App::loadTexture("snow.jpg");
 	glEnable(GL_TEXTURE_2D);
 }
@@ -897,13 +907,18 @@ void Textures::draw()
 	glBindTexture(GL_TEXTURE_2D, mTexID);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glUniform1i(mSTextLoc, 0);
+	glUniform1i(mUniformLocationMap["s_texture"], 0);
 
 	updateCamPos();
 	updatePosition();
 	updateModelviewMatrix();
-	glDrawElements(GL_TRIANGLES, mModel.getIndices().size(),
-			GL_UNSIGNED_SHORT, &mModel.getIndices()[0]);
+	if(mUseVBOs) {
+		glDrawElements(GL_TRIANGLES, mModel.getIndices().size(),
+				GL_UNSIGNED_SHORT, NULL);
+	} else {
+		glDrawElements(GL_TRIANGLES, mModel.getIndices().size(),
+				GL_UNSIGNED_SHORT, &mModel.getIndices()[0]);
+	}
 }
 
 void Textures::bindAttributes()
@@ -914,6 +929,11 @@ void Textures::bindAttributes()
 	glBindAttribLocation(mProgramObject, 1, "a_Texcoord");
 }
 
+AmbientLight::AmbientLight()
+{
+	mUniformLocationMap["u_ambientLight"] = -1;
+}
+
 const char* AmbientLight::getFragmentShaderFilename()
 {
 	return "ambient.frag";
@@ -922,7 +942,6 @@ const char* AmbientLight::getFragmentShaderFilename()
 void AmbientLight::postInit()
 {
 	Textures::postInit();
-	mAmbientLoc = glGetUniformLocation(mProgramObject, "u_ambientLight");
 }
 
 void AmbientLight::draw()
@@ -932,8 +951,16 @@ void AmbientLight::draw()
 	float rvalue = sin(timePoint);
 	float gvalue = sin(timePoint + 2.0f * PI / 3.0f);
 	float bvalue = sin(timePoint + 4.0f * PI / 3.0f);
-	glUniform3f(mAmbientLoc, rvalue, gvalue, bvalue);
+	glUniform3f(mUniformLocationMap["u_ambientLight"], rvalue, gvalue, bvalue);
 	Textures::draw();
+}
+
+DirectionalLight::DirectionalLight()
+{
+	assert(mModel.getNormals().size());
+
+	mUniformLocationMap["u_directionalLightDirection"] = -1;
+	mUniformLocationMap["u_directionalLightColor"] = -1;
 }
 
 const char* DirectionalLight::getVertexShaderFilename()
@@ -948,19 +975,43 @@ const char* DirectionalLight::getFragmentShaderFilename()
 
 void DirectionalLight::postInit()
 {
-	AmbientLight::postInit();
+	mUseVBOs = true;
 
-	mDirectionalLightDirLoc = glGetUniformLocation(mProgramObject, "u_directionalLightDirection");
-	mDirectionalLightColorLoc = glGetUniformLocation(mProgramObject, "u_directionalLightColor");
+	GLuint vboids[4];
+	glGenBuffers(4, vboids);
+	struct attrib {
+		const char* name;
+		int elems;
+		const std::vector<GLfloat>& data;
+	};
 
-	assert(mModel.getNormals().size());
-	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, &mModel.getNormals()[0]);
+
+	attrib attribs[] = { { "a_Position", 3, mModel.getVertexCoords() },
+		{ "a_Texcoord", 2, mModel.getTexCoords() },
+		{ "m_Normals", 3, mModel.getNormals() } };
+
+	int i = 0;
+	for(auto& a : attribs) {
+		glBindBuffer(GL_ARRAY_BUFFER, vboids[i]);
+		glBufferData(GL_ARRAY_BUFFER, a.data.size() * sizeof(GLfloat), &a.data[0], GL_STATIC_DRAW);
+		glEnableVertexAttribArray(i);
+		glVertexAttribPointer(i, a.elems, GL_FLOAT, GL_FALSE, 0, NULL);
+		glBindAttribLocation(mProgramObject, i, a.name);
+		i++;
+	}
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboids[3]);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, mModel.getIndices().size() * sizeof(GLushort),
+			&mModel.getIndices()[0], GL_STATIC_DRAW);
+
+	enableDepthTest();
+	setupTexturing();
 }
 
 void DirectionalLight::draw()
 {
-	glUniform3f(mDirectionalLightDirLoc, -1.0f, -1.0f, -1.0f);
-	glUniform3f(mDirectionalLightColorLoc, 1.0f, 1.0f, 1.0f);
+	glUniform3f(mUniformLocationMap["u_directionalLightDirection"], -1.0f, -1.0f, -1.0f);
+	glUniform3f(mUniformLocationMap["u_directionalLightColor"], 1.0f, 1.0f, 1.0f);
 	AmbientLight::draw();
 }
 
