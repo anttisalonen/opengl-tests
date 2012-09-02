@@ -582,7 +582,6 @@ class PointLight : public DirectionalLight {
 		virtual bool handleEvent(const SDL_Event& ev) override;
 		virtual const char* getVertexShaderFilename() override;
 		virtual const char* getFragmentShaderFilename() override;
-		virtual void bindAttributes() override;
 		virtual void draw() override;
 
 	protected:
@@ -1093,13 +1092,6 @@ void PointLight::draw()
 	glUniform3f(mUniformLocationMap["u_pointLightColor"], 1.0f, 1.0f, 1.0f);
 
 	DirectionalLight::draw();
-}
-
-void PointLight::bindAttributes()
-{
-	AmbientLight::bindAttributes();
-	glEnableVertexAttribArray(2);
-	glBindAttribLocation(mProgramObject, 2, "a_Normal");
 }
 
 void usage(const char* p)
