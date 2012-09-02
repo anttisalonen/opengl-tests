@@ -576,6 +576,21 @@ class DirectionalLight : public AmbientLight {
 		virtual void draw() override;
 };
 
+class PointLight : public DirectionalLight {
+	public:
+		PointLight();
+		virtual bool handleEvent(const SDL_Event& ev) override;
+		virtual const char* getVertexShaderFilename() override;
+		virtual const char* getFragmentShaderFilename() override;
+		virtual void bindAttributes() override;
+		virtual void draw() override;
+
+	protected:
+		bool mAmbientLightEnabled;
+		bool mDirectionalLightEnabled;
+		bool mPointLightEnabled;
+};
+
 const char* Triangle::getVertexShaderFilename()
 {
 	return "simple.vert";
@@ -1022,6 +1037,71 @@ void DirectionalLight::bindAttributes()
 	glBindAttribLocation(mProgramObject, 2, "a_Normal");
 }
 
+PointLight::PointLight()
+	: mAmbientLightEnabled(true),
+	mDirectionalLightEnabled(true),
+	mPointLightEnabled(true)
+{
+	mUniformLocationMap["u_pointLightPosition"] = -1;
+	mUniformLocationMap["u_pointLightAttenuation"] = -1;
+	mUniformLocationMap["u_pointLightColor"] = -1;
+	mUniformLocationMap["u_ambientLightEnabled"] = -1;
+	mUniformLocationMap["u_directionalLightEnabled"] = -1;
+	mUniformLocationMap["u_pointLightEnabled"] = -1;
+}
+
+bool PointLight::handleEvent(const SDL_Event& ev)
+{
+	if(DirectionalLight::handleEvent(ev))
+		return true;
+
+	if(ev.type == SDL_KEYDOWN) {
+		if(ev.key.keysym.sym == SDLK_F1) {
+			mAmbientLightEnabled = !mAmbientLightEnabled;
+		} else if(ev.key.keysym.sym == SDLK_F2) {
+			mDirectionalLightEnabled = !mDirectionalLightEnabled;
+		} else if(ev.key.keysym.sym == SDLK_F3) {
+			mPointLightEnabled = !mPointLightEnabled;
+		}
+	}
+
+	return false;
+}
+
+const char* PointLight::getVertexShaderFilename()
+{
+	return "pointlight.vert";
+}
+
+const char* PointLight::getFragmentShaderFilename()
+{
+	return "pointlight.frag";
+}
+
+void PointLight::draw()
+{
+	glUniform1i(mUniformLocationMap["u_ambientLightEnabled"], mAmbientLightEnabled);
+	glUniform1i(mUniformLocationMap["u_directionalLightEnabled"], mDirectionalLightEnabled);
+	glUniform1i(mUniformLocationMap["u_pointLightEnabled"], mPointLightEnabled);
+
+	double time = Clock::getTime();
+	float timePoint = Math::degreesToRadians(fmodl(time * 160.0f, 360));
+	float px = sin(timePoint);
+	float py = cos(timePoint);
+	glUniform3f(mUniformLocationMap["u_pointLightPosition"], px, py, 0.5f);
+	glUniform3f(mUniformLocationMap["u_pointLightAttenuation"], 0.0f, 0.0f, 6.0f);
+	glUniform3f(mUniformLocationMap["u_pointLightColor"], 1.0f, 1.0f, 1.0f);
+
+	DirectionalLight::draw();
+}
+
+void PointLight::bindAttributes()
+{
+	AmbientLight::bindAttributes();
+	glEnableVertexAttribArray(2);
+	glBindAttribLocation(mProgramObject, 2, "a_Normal");
+}
+
 void usage(const char* p)
 {
 	std::cerr << "Usage: " << p << " [--colors]\n";
@@ -1050,6 +1130,8 @@ int main(int argc, char** argv)
 			app = new AmbientLight();
 		} else if(!strcmp(argv[1], "--directional")) {
 			app = new DirectionalLight();
+		} else if(!strcmp(argv[1], "--pointlight")) {
+			app = new PointLight();
 		} else {
 			std::cerr << "Unknown parameters.\n";
 			usage(argv[0]);
