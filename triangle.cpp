@@ -3,6 +3,9 @@
 #include <fstream>
 #include <iostream>
 
+#include <map>
+#include <functional>
+
 #include <SDL.h>
 #include <SDL_image.h>
 #include <GL/glew.h>
@@ -67,6 +70,7 @@ class App {
 		static Matrix44 translationMatrix(const Vector3& v);
 		static Matrix44 rotationMatrixFromEuler(const Vector3& v);
 		static Matrix44 perspectiveMatrix(float fov);
+		static Matrix44 cameraRotationMatrix(const Vector3& tgt, const Vector3& up);
 
 		GLuint mProgramObject;
 
@@ -227,7 +231,7 @@ class Rotate : public Colors {
 		virtual bool handleEvent(const SDL_Event& ev) override;
 
 	protected:
-		virtual Matrix44 calculateModelviewMatrix() const;
+		virtual Matrix44 calculateModelviewMatrix(const Matrix44& m) const;
 		GLint mMVPLoc;
 		Vector3 mPos;
 		Vector3 mRot;
@@ -239,12 +243,61 @@ class Perspective : public Rotate {
 	public:
 		Perspective();
 	protected:
-		virtual Matrix44 calculateModelviewMatrix() const override;
+		virtual Matrix44 calculateModelviewMatrix(const Matrix44& m) const override;
 };
 
 Perspective::Perspective()
 {
 	mPos.z = -2.0f;
+}
+
+class Camera : public Perspective {
+	public:
+		Camera();
+		virtual bool handleEvent(const SDL_Event& ev) override;
+		virtual void draw() override;
+	protected:
+		virtual Matrix44 calculateModelviewMatrix(const Matrix44& m) const override;
+		Vector3 mCamPos;
+		Vector3 mTarget;
+		Vector3 mUp;
+		float mPosStep;
+		float mRotStep;
+		float mHRot;
+		float mVRot;
+		std::map<SDLKey, Vector3> mCamPosDelta;
+		std::map<SDLKey, std::function<Vector3 ()>> mControls;
+		static Vector3 WorldForward;
+		static Vector3 WorldUp;
+
+	private:
+		Vector3 forwardMovement();
+		Vector3 sidewaysMovement();
+		Vector3 upwardsMovement();
+		void handleMouseMove(int xdiff, int ydiff);
+};
+
+Vector3 Camera::WorldForward = Vector3(1, 0, 0);
+Vector3 Camera::WorldUp      = Vector3(0, 0, 1);
+
+Camera::Camera()
+	: mCamPos(Vector3(-2.2f, 0.0f, 0.0f)),
+	mTarget(WorldForward),
+	mUp(WorldUp),
+	mPosStep(0.1f),
+	mRotStep(0.02f),
+	mHRot(0.0f),
+	mVRot(0.0f)
+{
+	mPos = Vector3(0, 0, 0);
+	mRot = Vector3(0, 0, 0.8);
+	mControls[SDLK_UP] = [&] () { return forwardMovement(); };
+	mControls[SDLK_PAGEUP] = [&] () { return upwardsMovement(); };
+	mControls[SDLK_RIGHT] = [&] () { return sidewaysMovement(); };
+	mControls[SDLK_DOWN] = [&] () { return forwardMovement() * -1.0f; };
+	mControls[SDLK_PAGEDOWN] = [&] () { return upwardsMovement() * -1.0f; };
+	mControls[SDLK_LEFT] = [&] () { return sidewaysMovement() * -1.0f; };
+	handleMouseMove(0, 0);
 }
 
 Rotate::Rotate()
@@ -291,19 +344,44 @@ Matrix44 App::perspectiveMatrix(float fov)
 	return pers;
 }
 
-Matrix44 Perspective::calculateModelviewMatrix() const
+Matrix44 Camera::calculateModelviewMatrix(const Matrix44& m) const
 {
 	auto pers = perspectiveMatrix(90.0f);
-	auto translation = translationMatrix(mPos);
-	auto rotation = rotationMatrixFromEuler(mRot);
-	return rotation * translation * pers;
+	auto camrot = cameraRotationMatrix(mTarget, mUp);
+	auto camtrans = translationMatrix(mCamPos.negated());
+	return Rotate::calculateModelviewMatrix(camtrans * camrot * pers);
 }
 
-Matrix44 Rotate::calculateModelviewMatrix() const
+Matrix44 App::cameraRotationMatrix(const Vector3& tgt, const Vector3& up)
+{
+	Vector3 n(tgt.negated().normalized());
+	auto u = up.normalized().cross(n);
+	auto v = n.cross(u);
+	auto m = Matrix44::Identity;
+	m.m[0] = u.x;
+	m.m[1] = v.x;
+	m.m[2] = n.x;
+	m.m[4] = u.y;
+	m.m[5] = v.y;
+	m.m[6] = n.y;
+	m.m[8] = u.z;
+	m.m[9] = v.z;
+	m.m[10] = n.z;
+
+	return m;
+}
+
+Matrix44 Perspective::calculateModelviewMatrix(const Matrix44& m) const
+{
+	auto pers = perspectiveMatrix(90.0f);
+	return Rotate::calculateModelviewMatrix(pers);
+}
+
+Matrix44 Rotate::calculateModelviewMatrix(const Matrix44& m) const
 {
 	auto translation = translationMatrix(mPos);
 	auto rotation = rotationMatrixFromEuler(mRot);
-	return rotation * translation;
+	return rotation * translation * m;
 }
 
 void Rotate::draw()
@@ -311,11 +389,19 @@ void Rotate::draw()
 	mPos += mPosDelta;
 	mRot += mRotDelta;
 
-	auto modelview = calculateModelviewMatrix();
+	auto modelview = calculateModelviewMatrix(Matrix44::Identity);
 
 	glUniformMatrix4fv(mMVPLoc, 1, GL_FALSE, modelview.m);
 
 	Colors::draw();
+}
+
+void Camera::draw()
+{
+	for(auto& p : mCamPosDelta) {
+		mCamPos += p.second;
+	}
+	Rotate::draw();
 }
 
 bool Rotate::handleEvent(const SDL_Event& ev)
@@ -364,6 +450,83 @@ bool Rotate::handleEvent(const SDL_Event& ev)
 	}
 
 	return false;
+}
+
+Vector3 Camera::forwardMovement()
+{
+	return mTarget.normalized() * mPosStep;
+}
+
+Vector3 Camera::sidewaysMovement()
+{
+	return mTarget.cross(mUp).normalized() * mPosStep;
+}
+
+Vector3 Camera::upwardsMovement()
+{
+	return mUp.normalized() * mPosStep;
+}
+
+bool Camera::handleEvent(const SDL_Event& ev)
+{
+	if(App::handleEvent(ev))
+		return true;
+
+	switch(ev.type) {
+		case SDL_KEYDOWN:
+			{
+				auto it = mControls.find(ev.key.keysym.sym);
+				if(it != mControls.end()) {
+					mCamPosDelta[ev.key.keysym.sym] = it->second();
+				} else {
+					if(ev.key.keysym.sym == SDLK_p) {
+						std::cout << "Up: " << mUp << "\n";
+						std::cout << "Target: " << mTarget << "\n";
+						std::cout << "Position: " << mCamPos << "\n";
+					}
+				}
+			}
+			break;
+
+		case SDL_KEYUP:
+			{
+				auto it = mControls.find(ev.key.keysym.sym);
+				if(it != mControls.end()) {
+					mCamPosDelta[ev.key.keysym.sym] = Vector3();
+				}
+			}
+			break;
+
+		case SDL_MOUSEMOTION:
+			if(SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(1)) {
+				handleMouseMove(ev.motion.xrel, ev.motion.yrel);
+				Uint8 *keystate = SDL_GetKeyState(NULL);
+				for(auto& p : mControls) {
+					if(keystate[p.first]) {
+						mCamPosDelta[p.first] = p.second();
+					}
+				}
+			}
+			break;
+
+		default:
+			break;
+	}
+
+	return false;
+}
+
+void Camera::handleMouseMove(int xdiff, int ydiff)
+{
+	mHRot += xdiff * mRotStep;
+	mVRot += ydiff * mRotStep;
+
+	Vector3 view = Math::rotate3D(WorldForward, mHRot, WorldUp).normalized();
+
+	auto haxis = WorldUp.cross(view).normalized();
+
+	mTarget = Math::rotate3D(view, -mVRot, haxis).normalized();
+	mUp = mTarget.cross(haxis).normalized();
 }
 
 GLuint App::loadShaderFromFile(GLenum type, const char* filename)
@@ -529,6 +692,8 @@ int main(int argc, char** argv)
 			app = new Rotate();
 		} else if(!strcmp(argv[1], "--perspective")) {
 			app = new Perspective();
+		} else if(!strcmp(argv[1], "--camera")) {
+			app = new Camera();
 		} else {
 			std::cerr << "Unknown parameters.\n";
 			usage(argv[0]);
