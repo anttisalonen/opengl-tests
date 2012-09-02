@@ -1,6 +1,6 @@
 CXX      = clang++
 CXXFLAGS = -std=c++11 -Wall -Werror $(shell sdl-config --cflags) -O2
-LDFLAGS  = $(shell sdl-config --libs) -lSDL_image -lGL -lGLEW
+LDFLAGS  = $(shell sdl-config --libs) -lSDL_image -lGL -lGLEW -lassimp
 
 default: triangle
 

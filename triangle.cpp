@@ -4,12 +4,19 @@
 #include <iostream>
 
 #include <map>
+#include <vector>
 #include <functional>
+#include <stdexcept>
 
 #include <SDL.h>
 #include <SDL_image.h>
+
 #include <GL/glew.h>
 #include <GL/gl.h>
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 #include "libcommon/Math.h"
 #include "libcommon/Vector3.h"
@@ -260,6 +267,9 @@ class Rotate : public Colors {
 
 	protected:
 		virtual Matrix44 calculateModelviewMatrix(const Matrix44& m) const;
+		void updatePosition();
+		void updateModelviewMatrix();
+
 		GLint mMVPLoc;
 		Vector3 mPos;
 		Vector3 mRot;
@@ -284,8 +294,11 @@ class Camera : public Perspective {
 		Camera();
 		virtual bool handleEvent(const SDL_Event& ev) override;
 		virtual void draw() override;
+
 	protected:
 		virtual Matrix44 calculateModelviewMatrix(const Matrix44& m) const override;
+		void updateCamPos();
+
 		Vector3 mCamPos;
 		Vector3 mTarget;
 		Vector3 mUp;
@@ -305,8 +318,89 @@ class Camera : public Perspective {
 		void handleMouseMove(int xdiff, int ydiff);
 };
 
+class Model {
+	public:
+		Model(const char* filename);
+		const std::vector<GLfloat>& getVertexCoords() const;
+		const std::vector<GLfloat>& getTexCoords() const;
+		const std::vector<GLushort> getIndices() const;
+
+	private:
+		std::vector<GLfloat> mVertexCoords;
+		std::vector<GLfloat> mTexCoords;
+		std::vector<GLushort> mIndices;
+
+		Assimp::Importer mImporter;
+		const aiScene* mScene;
+};
+
+Model::Model(const char* filename)
+{
+	mScene = mImporter.ReadFile(filename,
+			aiProcess_CalcTangentSpace |
+			aiProcess_Triangulate |
+			aiProcess_JoinIdenticalVertices |
+			aiProcess_SortByPType);
+	if(!mScene) {
+		std::cerr << "Unable to load model from " << filename << "\n";
+		throw std::runtime_error("Error while loading model");
+	}
+	if(mScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !mScene->mNumMeshes) {
+		std::cerr << "Model file " << filename << " is incomplete\n";
+		throw std::runtime_error("Error while loading model");
+	}
+
+	aiMesh* mesh = mScene->mMeshes[0];
+	if(!mesh->HasTextureCoords(0) || mesh->GetNumUVChannels() != 1) {
+		std::cerr << "Model file " << filename << " has unsupported texture coordinates.\n";
+		throw std::runtime_error("Error while loading model");
+	}
+
+	std::cout << mesh->mNumVertices << " vertices.\n";
+	std::cout << mesh->mNumFaces << " faces.\n";
+
+	for(int i = 0; i < mesh->mNumVertices; i++) {
+		const aiVector3D& vertex = mesh->mVertices[i];
+		mVertexCoords.push_back(vertex.x);
+		mVertexCoords.push_back(vertex.y);
+		mVertexCoords.push_back(vertex.z);
+
+		const aiVector3D& texcoord = mesh->mTextureCoords[0][i];
+		mTexCoords.push_back(texcoord.x);
+		mTexCoords.push_back(texcoord.y);
+	}
+
+	for(int i = 0; i < mesh->mNumFaces; i++) {
+		const aiFace& face = mesh->mFaces[i];
+		if(face.mNumIndices != 3) {
+			std::cerr << "Warning: number of indices should be three.\n";
+			throw std::runtime_error("Error while loading model");
+		} else {
+			for(int j = 0; j < face.mNumIndices; j++) {
+				mIndices.push_back(face.mIndices[j]);
+			}
+		}
+	}
+}
+
+const std::vector<GLfloat>& Model::getVertexCoords() const
+{
+	return mVertexCoords;
+}
+
+const std::vector<GLfloat>& Model::getTexCoords() const
+{
+	return mTexCoords;
+}
+
+const std::vector<GLushort> Model::getIndices() const
+{
+	return mIndices;
+}
+
 class Textures : public Camera {
 	public:
+		Textures();
 		virtual const char* getVertexShaderFilename() override;
 		virtual const char* getFragmentShaderFilename() override;
 		virtual void bindAttributes() override;
@@ -316,7 +410,17 @@ class Textures : public Camera {
 	protected:
 		GLint mSTextLoc;
 		GLuint mTexID;
+
+		Model mModel;
 };
+
+Textures::Textures()
+	: mModel(Model("textured-cube.obj"))
+{
+	assert(mModel.getVertexCoords().size());
+	assert(mModel.getTexCoords().size());
+	assert(mModel.getIndices().size());
+}
 
 const char* Textures::getVertexShaderFilename()
 {
@@ -334,12 +438,10 @@ void Textures::postInit()
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, cubevertices);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, cubetexcoords);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, &mModel.getVertexCoords()[0]);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, &mModel.getTexCoords()[0]);
 	mSTextLoc = glGetUniformLocation(mProgramObject, "s_texture");
-	std::cout << "mSTextLoc: " << mSTextLoc << "\n";
 	mTexID = App::loadTexture("snow.jpg");
-	std::cout << "mTexID: " << mTexID << "\n";
 	glEnable(GL_TEXTURE_2D);
 }
 
@@ -351,7 +453,11 @@ void Textures::draw()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glUniform1i(mSTextLoc, 0);
 
-	Camera::draw();
+	updateCamPos();
+	updatePosition();
+	updateModelviewMatrix();
+	glDrawElements(GL_TRIANGLES, mModel.getIndices().size(),
+			GL_UNSIGNED_SHORT, &mModel.getIndices()[0]);
 }
 
 void Textures::bindAttributes()
@@ -469,23 +575,36 @@ Matrix44 Rotate::calculateModelviewMatrix(const Matrix44& m) const
 	return rotation * translation * m;
 }
 
-void Rotate::draw()
+void Rotate::updatePosition()
 {
 	mPos += mPosDelta;
 	mRot += mRotDelta;
+}
 
+void Rotate::updateModelviewMatrix()
+{
 	auto modelview = calculateModelviewMatrix(Matrix44::Identity);
 
 	glUniformMatrix4fv(mMVPLoc, 1, GL_FALSE, modelview.m);
+}
 
+void Rotate::draw()
+{
+	updatePosition();
+	updateModelviewMatrix();
 	Colors::draw();
 }
 
-void Camera::draw()
+void Camera::updateCamPos()
 {
 	for(auto& p : mCamPosDelta) {
 		mCamPos += p.second;
 	}
+}
+
+void Camera::draw()
+{
+	updateCamPos();
 	Rotate::draw();
 }
 
