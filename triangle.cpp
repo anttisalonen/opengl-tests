@@ -8,22 +8,293 @@
 #include <GL/glew.h>
 #include <GL/gl.h>
 
+#include "libcommon/Math.h"
+#include "libcommon/Vector3.h"
+#include "libcommon/Matrix44.h"
+
+using namespace Common;
+
 static const int screenWidth = 800;
 static const int screenHeight = 600;
 
+GLfloat trianglevertices[] = {0.0f, 0.5f, 0.0f,
+	-0.5f, -0.5f, 0.0f,
+	0.5f, -0.5f, 0.0f};
+
+GLfloat cubevertices[] = {-0.5, 0.5, 0.0,
+	-0.5, -0.5, 0.0,
+	0.5, -0.5, 0.0,
+	0.5,  0.5, 0.0,
+	-0.5, 0.5, 1.0,
+	-0.5, -0.5, 1.0,
+	0.5, -0.5, 1.0,
+	0.5,  0.5, 1.0};
+GLfloat cubecolors[] = {1.0, 1.0, 1.0, 1.0,
+	1.0, 0.0, 1.0, 1.0,
+	1.0, 0.0, 0.0, 1.0,
+	1.0, 1.0, 0.0, 1.0,
+	0.0, 1.0, 0.0, 1.0,
+	0.0, 1.0, 1.0, 1.0,
+	0.0, 0.0, 1.0, 1.0,
+	0.0, 0.0, 0.0, 1.0};
+
+GLushort cubeindices[] = {0, 1, 2,
+	0, 2, 3,
+	0, 3, 7,
+	0, 7, 4,
+	0, 4, 5,
+	0, 5, 1,
+	3, 2, 6,
+	3, 6, 7};
+
 class App {
 	public:
-		App(int mode);
+		App();
+		virtual ~App() { }
 		void run();
+		virtual const char* getVertexShaderFilename() = 0;
+		virtual const char* getFragmentShaderFilename() = 0;
+		virtual void bindAttributes() = 0;
+		virtual void draw() = 0;
+		virtual void postInit() { }
+		virtual bool handleEvent(const SDL_Event& ev);
 
 	private:
+		void init();
+		bool handleInput();
 		GLuint loadShader(GLenum type, const char* src);
 		GLuint loadShaderFromFile(GLenum type, const char* filename);
 
 		SDL_Surface* mScreen;
+		bool mInit;
+
+	protected:
 		GLuint mProgramObject;
-		int mMode;
 };
+
+bool App::handleEvent(const SDL_Event& ev)
+{
+	switch(ev.type) {
+		case SDL_KEYDOWN:
+			switch(ev.key.keysym.sym) {
+				case SDLK_ESCAPE:
+					return true;
+
+				default:
+					break;
+			}
+			break;
+
+		case SDL_QUIT:
+			return true;
+
+		default:
+			break;
+	}
+
+	return false;
+}
+
+bool App::handleInput()
+{
+	SDL_Event event;
+
+	while(SDL_PollEvent(&event)) {
+		if(handleEvent(event)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+class Triangle : public App {
+	public:
+		virtual const char* getVertexShaderFilename() override;
+		virtual const char* getFragmentShaderFilename() override;
+		virtual void bindAttributes() override;
+		virtual void draw() override;
+};
+
+const char* Triangle::getVertexShaderFilename()
+{
+	return "simple.vert";
+}
+
+const char* Triangle::getFragmentShaderFilename()
+{
+	return "simple.frag";
+}
+
+void Triangle::bindAttributes()
+{
+	glBindAttribLocation(mProgramObject, 0, "vPosition");
+}
+
+void Triangle::draw()
+{
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, trianglevertices);
+	glEnableVertexAttribArray(0);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+class Colors : public App {
+	public:
+		virtual const char* getVertexShaderFilename() override;
+		virtual const char* getFragmentShaderFilename() override;
+		virtual void bindAttributes() override;
+		virtual void postInit() override;
+		virtual void draw() override;
+};
+
+const char* Colors::getVertexShaderFilename()
+{
+	return "colors.vert";
+}
+
+const char* Colors::getFragmentShaderFilename()
+{
+	return "colors.frag";
+}
+
+void Colors::bindAttributes()
+{
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+	glBindAttribLocation(mProgramObject, 0, "a_Position");
+	glBindAttribLocation(mProgramObject, 1, "a_Color");
+}
+
+void Colors::postInit()
+{
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, cubevertices);
+	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, cubecolors);
+}
+
+void Colors::draw()
+{
+	glDrawElements(GL_TRIANGLES, sizeof(cubeindices) / sizeof(GLushort),
+			GL_UNSIGNED_SHORT, cubeindices);
+}
+
+class Rotate : public Colors {
+	public:
+		Rotate();
+		virtual const char* getVertexShaderFilename() override;
+		virtual const char* getFragmentShaderFilename() override;
+		virtual void postInit() override;
+		virtual void draw() override;
+		virtual bool handleEvent(const SDL_Event& ev) override;
+
+	private:
+		GLint mMVPLoc;
+		Matrix44 mModelview;
+		Vector3 mPos;
+		Vector3 mRot;
+		Vector3 mPosDelta;
+		Vector3 mRotDelta;
+};
+
+Rotate::Rotate()
+	: mPos(Vector3(-0.1f, 0.37f, 0.1f)),
+	mRot(Vector3(Math::degreesToRadians(149),
+				Math::degreesToRadians(150),
+				Math::degreesToRadians(38)))
+{
+	mModelview = Matrix44::Identity;
+}
+
+const char* Rotate::getVertexShaderFilename()
+{
+	return "rotate.vert";
+}
+
+const char* Rotate::getFragmentShaderFilename()
+{
+	return "rotate.frag";
+}
+
+void Rotate::postInit()
+{
+	Colors::postInit();
+	mMVPLoc = glGetUniformLocation(mProgramObject, "u_MVP");
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LEQUAL);
+}
+
+void Rotate::draw()
+{
+	mPos += mPosDelta;
+	mRot += mRotDelta;
+
+	// Translate modelview
+	mModelview.m[3 * 4 + 0] = mPos.x;
+	mModelview.m[3 * 4 + 1] = mPos.y;
+	mModelview.m[3 * 4 + 2] = mPos.z;
+
+	// Rotate modelview
+	mModelview.m[0 * 4 + 0] = cos(mRot.y) * cos(mRot.z);
+	mModelview.m[1 * 4 + 0] = -cos(mRot.x) * sin(mRot.z) + sin(mRot.x) * sin(mRot.y) * cos(mRot.z);
+	mModelview.m[2 * 4 + 0] = sin(mRot.x) * sin(mRot.z) + cos(mRot.x) * sin(mRot.y) * cos(mRot.z);
+	mModelview.m[0 * 4 + 1] = cos(mRot.y) * sin(mRot.z);
+	mModelview.m[1 * 4 + 1] = cos(mRot.x) * cos(mRot.z) + sin(mRot.x) * sin(mRot.y) * sin(mRot.z);
+	mModelview.m[2 * 4 + 1] = -sin(mRot.x) * cos(mRot.z) + cos(mRot.x) * sin(mRot.y) * sin(mRot.z);
+	mModelview.m[0 * 4 + 2] = -sin(mRot.y);
+	mModelview.m[1 * 4 + 2] = sin(mRot.x) * cos(mRot.y);
+	mModelview.m[2 * 4 + 2] = cos(mRot.x) * cos(mRot.y);
+
+	glUniformMatrix4fv(mMVPLoc, 1, GL_FALSE, mModelview.m);
+
+	Colors::draw();
+}
+
+bool Rotate::handleEvent(const SDL_Event& ev)
+{
+	if(App::handleEvent(ev))
+		return true;
+
+	static const float posd = 0.1f;
+	static const float rotd = 0.01f;
+
+	switch(ev.type) {
+		case SDL_KEYDOWN:
+			switch(ev.key.keysym.sym) {
+				case SDLK_w: mPosDelta.y += posd; break;
+				case SDLK_s: mPosDelta.y -= posd; break;
+				case SDLK_d: mPosDelta.x += posd; break;
+				case SDLK_a: mPosDelta.x -= posd; break;
+				case SDLK_q: mPosDelta.z += posd; break;
+				case SDLK_e: mPosDelta.z -= posd; break;
+				case SDLK_UP:       mRotDelta.x += rotd; break;
+				case SDLK_DOWN:     mRotDelta.x -= rotd; break;
+				case SDLK_RIGHT:    mRotDelta.y += rotd; break;
+				case SDLK_LEFT:     mRotDelta.y -= rotd; break;
+				case SDLK_PAGEUP:   mRotDelta.z += rotd; break;
+				case SDLK_PAGEDOWN: mRotDelta.z -= rotd; break;
+				case SDLK_p:
+				    std::cout << "Position: " << mPos << "\nRotation: " << mRot << "\n";
+				default: break;
+			}
+			break;
+
+		case SDL_KEYUP:
+			switch(ev.key.keysym.sym) {
+				case SDLK_w: case SDLK_s: mPosDelta.y = 0.0f; break;
+				case SDLK_d: case SDLK_a: mPosDelta.x = 0.0f; break;
+				case SDLK_q: case SDLK_e: mPosDelta.z = 0.0f; break;
+				case SDLK_UP:     case SDLK_DOWN:     mRotDelta.x = 0.0f; break;
+				case SDLK_RIGHT:  case SDLK_LEFT:     mRotDelta.y = 0.0f; break;
+				case SDLK_PAGEUP: case SDLK_PAGEDOWN: mRotDelta.z = 0.0f; break;
+				default: break;
+			}
+			break;
+
+		default:
+			break;
+	}
+
+	return false;
+}
 
 GLuint App::loadShaderFromFile(GLenum type, const char* filename)
 {
@@ -69,8 +340,8 @@ GLuint App::loadShader(GLenum type, const char* src)
 	return shader;
 }
 
-App::App(int mode)
-	: mMode(mode)
+App::App()
+	: mInit(false)
 {
 	if (SDL_Init(SDL_INIT_EVERYTHING) == -1) {
 		std::cerr << "Unable to init SDL: " << SDL_GetError() << "\n";
@@ -89,7 +360,11 @@ App::App(int mode)
 	}
 	SDL_EnableKeyRepeat(0, SDL_DEFAULT_REPEAT_INTERVAL);
 	SDL_WM_SetCaption("OpenGL tests", nullptr);
+}
 
+
+void App::init()
+{
 	GLuint vshader;
 	GLuint fshader;
 	GLint linked;
@@ -104,21 +379,8 @@ App::App(int mode)
 		exit(1);
 	}
 
-	switch(mMode) {
-		case 0:
-			vshader = loadShaderFromFile(GL_VERTEX_SHADER, "simple.vert");
-			fshader = loadShaderFromFile(GL_FRAGMENT_SHADER, "simple.frag");
-			break;
-
-		case 1:
-			vshader = loadShaderFromFile(GL_VERTEX_SHADER, "colors.vert");
-			fshader = loadShaderFromFile(GL_FRAGMENT_SHADER, "colors.frag");
-			break;
-
-		default:
-			assert(0);
-			break;
-	}
+	vshader = loadShaderFromFile(GL_VERTEX_SHADER, getVertexShaderFilename());
+	fshader = loadShaderFromFile(GL_FRAGMENT_SHADER, getFragmentShaderFilename());
 
 	mProgramObject = glCreateProgram();
 
@@ -130,20 +392,7 @@ App::App(int mode)
 	glAttachShader(mProgramObject, vshader);
 	glAttachShader(mProgramObject, fshader);
 
-	switch(mMode) {
-		case 0:
-			glBindAttribLocation(mProgramObject, 0, "vPosition");
-			break;
-
-		case 1:
-			glBindAttribLocation(mProgramObject, 0, "a_Position");
-			glBindAttribLocation(mProgramObject, 1, "a_Color");
-			break;
-
-		default:
-			assert(0);
-			break;
-	}
+	bindAttributes();
 	glLinkProgram(mProgramObject);
 
 	glGetProgramiv(mProgramObject, GL_LINK_STATUS, &linked);
@@ -164,73 +413,30 @@ App::App(int mode)
 		exit(1);
 	}
 
+	postInit();
+
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glViewport(0, 0, screenWidth, screenHeight);
-	glClear(GL_COLOR_BUFFER_BIT);
 
 	glUseProgram(mProgramObject);
-
 }
 
 void App::run()
 {
-	switch(mMode) {
-		case 0:
-			{
-				GLfloat vertices[] = {0.0f, 0.5f, 0.0f,
-					-0.5f, -0.5f, 0.0f,
-					0.5f, -0.5f, 0.0f};
-
-				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vertices);
-				glEnableVertexAttribArray(0);
-				glDrawArrays(GL_TRIANGLES, 0, 3);
-			}
-			break;
-
-		case 1:
-			{
-				GLfloat vertices[] = {-0.5, 0.5, 0.0,
-					-0.5, -0.5, 0.0,
-					0.5, -0.5, 0.0,
-					0.5,  0.5, 0.0,
-					-0.5, 0.5, 1.0,
-					-0.5, -0.5, 1.0,
-					0.5, -0.5, 1.0,
-					0.5,  0.5, 1.0};
-				GLfloat colors[] = {1.0, 1.0, 1.0, 1.0,
-					1.0, 0.0, 1.0, 1.0,
-					1.0, 0.0, 0.0, 1.0,
-					1.0, 1.0, 0.0, 1.0,
-					0.0, 1.0, 0.0, 1.0,
-					0.0, 1.0, 1.0, 1.0,
-					0.0, 0.0, 1.0, 1.0,
-					0.0, 0.0, 0.0, 1.0};
-
-				glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vertices);
-				glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, colors);
-				glEnableVertexAttribArray(0);
-				glEnableVertexAttribArray(1);
-				GLushort indices[] = {0, 1, 2,
-					0, 2, 3,
-					0, 3, 7,
-					0, 7, 4,
-					0, 4, 5,
-					0, 5, 1,
-					3, 2, 6,
-					3, 6, 7};
-				glDrawElements(GL_TRIANGLES, sizeof(indices) / sizeof(GLushort),
-						GL_UNSIGNED_SHORT, indices);
-			}
-			break;
-
-		default:
-			assert(0);
-			break;
+	if(!mInit) {
+		mInit = true;
+		init();
 	}
 
-	SDL_GL_SwapBuffers();
+	while(1) {
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		if(handleInput()) {
+			break;
+		}
+		draw();
+		SDL_GL_SwapBuffers();
+	}
 
-	sleep(3);
 }
 
 void usage(const char* p)
@@ -240,7 +446,7 @@ void usage(const char* p)
 
 int main(int argc, char** argv)
 {
-	int mode = 0;
+	App* app = nullptr;
 	if(argc != 1) {
 		if(argc != 2) {
 			std::cerr << "Unknown parameters.\n";
@@ -248,21 +454,30 @@ int main(int argc, char** argv)
 			exit(1);
 		}
 		if(!strcmp(argv[1], "--colors")) {
-			mode = 1;
+			app = new Colors();
+		} else if(!strcmp(argv[1], "--rotate")) {
+			app = new Rotate();
 		} else {
 			std::cerr << "Unknown parameters.\n";
 			usage(argv[0]);
 			exit(1);
 		}
 	}
+
+	if(!app) {
+		app = new Triangle();
+	}
+
 	try {
-		App app(mode);
-		app.run();
+		app->run();
 	} catch(std::exception& e) {
 		std::cerr << "std::exception: " << e.what() << "\n";
 	} catch(...) {
 		std::cerr << "Unknown exception.\n";
 	}
+
+	delete app;
+
 	return 0;
 }
 
