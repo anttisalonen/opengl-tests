@@ -21,14 +21,14 @@ GLfloat trianglevertices[] = {0.0f, 0.5f, 0.0f,
 	-0.5f, -0.5f, 0.0f,
 	0.5f, -0.5f, 0.0f};
 
-GLfloat cubevertices[] = {-0.5, 0.5, 0.0,
-	-0.5, -0.5, 0.0,
-	0.5, -0.5, 0.0,
-	0.5,  0.5, 0.0,
-	-0.5, 0.5, 1.0,
-	-0.5, -0.5, 1.0,
-	0.5, -0.5, 1.0,
-	0.5,  0.5, 1.0};
+GLfloat cubevertices[] = {-0.5, 0.5, 0.5,
+	-0.5, -0.5, 0.5,
+	0.5, -0.5, 0.5,
+	0.5,  0.5, 0.5,
+	-0.5, 0.5, -0.5,
+	-0.5, -0.5, -0.5,
+	0.5, -0.5, -0.5,
+	0.5,  0.5, -0.5};
 GLfloat cubecolors[] = {1.0, 1.0, 1.0, 1.0,
 	1.0, 0.0, 1.0, 1.0,
 	1.0, 0.0, 0.0, 1.0,
@@ -39,13 +39,17 @@ GLfloat cubecolors[] = {1.0, 1.0, 1.0, 1.0,
 	0.0, 0.0, 0.0, 1.0};
 
 GLushort cubeindices[] = {0, 1, 2,
-	0, 2, 3,
-	0, 3, 7,
-	0, 7, 4,
-	0, 4, 5,
-	0, 5, 1,
-	3, 2, 6,
-	3, 6, 7};
+                       0, 2, 3,
+                       0, 3, 7,
+                       0, 7, 4,
+                       0, 4, 5,
+                       0, 5, 1,
+                       3, 2, 6,
+                       3, 6, 7,
+                       2, 1, 6,
+                       1, 6, 5,
+                       5, 6, 4,
+                       4, 7, 6};
 
 class App {
 	public:
@@ -59,6 +63,13 @@ class App {
 		virtual void postInit() { }
 		virtual bool handleEvent(const SDL_Event& ev);
 
+	protected:
+		static Matrix44 translationMatrix(const Vector3& v);
+		static Matrix44 rotationMatrixFromEuler(const Vector3& v);
+		static Matrix44 perspectiveMatrix(float fov);
+
+		GLuint mProgramObject;
+
 	private:
 		void init();
 		bool handleInput();
@@ -67,10 +78,39 @@ class App {
 
 		SDL_Surface* mScreen;
 		bool mInit;
-
-	protected:
-		GLuint mProgramObject;
 };
+
+Matrix44 App::translationMatrix(const Vector3& v)
+{
+	Matrix44 translation = Matrix44::Identity;
+	translation.m[3 * 4 + 0] = v.x;
+	translation.m[3 * 4 + 1] = v.y;
+	translation.m[3 * 4 + 2] = v.z;
+	return translation;
+}
+
+Matrix44 App::rotationMatrixFromEuler(const Vector3& v)
+{
+	Matrix44 rotation = Matrix44::Identity;
+	float cx = cos(v.x);
+	float cy = cos(v.y);
+	float cz = cos(v.z);
+	float sx = sin(v.x);
+	float sy = sin(v.y);
+	float sz = sin(v.z);
+
+	rotation.m[0 * 4 + 0] = cy * cz;
+	rotation.m[1 * 4 + 0] = -cx * sz + sx * sy * cz;
+	rotation.m[2 * 4 + 0] = sx * sz + cx * sy * cz;
+	rotation.m[0 * 4 + 1] = cy * sz;
+	rotation.m[1 * 4 + 1] = cx * cz + sx * sy * sz;
+	rotation.m[2 * 4 + 1] = -sx * cz + cx * sy * sz;
+	rotation.m[0 * 4 + 2] = -sy;
+	rotation.m[1 * 4 + 2] = sx * cy;
+	rotation.m[2 * 4 + 2] = cx * cy;
+
+	return rotation;
+}
 
 bool App::handleEvent(const SDL_Event& ev)
 {
@@ -186,22 +226,33 @@ class Rotate : public Colors {
 		virtual void draw() override;
 		virtual bool handleEvent(const SDL_Event& ev) override;
 
-	private:
+	protected:
+		virtual Matrix44 calculateModelviewMatrix() const;
 		GLint mMVPLoc;
-		Matrix44 mModelview;
 		Vector3 mPos;
 		Vector3 mRot;
 		Vector3 mPosDelta;
 		Vector3 mRotDelta;
 };
 
+class Perspective : public Rotate {
+	public:
+		Perspective();
+	protected:
+		virtual Matrix44 calculateModelviewMatrix() const override;
+};
+
+Perspective::Perspective()
+{
+	mPos.z = -2.0f;
+}
+
 Rotate::Rotate()
-	: mPos(Vector3(-0.1f, 0.37f, 0.1f)),
+	: mPos(Vector3(-0.1f, 0.0, 0.1f)),
 	mRot(Vector3(Math::degreesToRadians(149),
 				Math::degreesToRadians(150),
 				Math::degreesToRadians(38)))
 {
-	mModelview = Matrix44::Identity;
 }
 
 const char* Rotate::getVertexShaderFilename()
@@ -222,28 +273,47 @@ void Rotate::postInit()
 	glDepthFunc(GL_LEQUAL);
 }
 
+Matrix44 App::perspectiveMatrix(float fov)
+{
+	const float aspect_ratio = screenWidth / screenHeight;
+	const float znear = 0.1f;
+	const float zfar = 200.0f;
+	const float h = 1.0 / tan(Math::degreesToRadians(fov * 0.5f));
+	const float neg_depth = znear - zfar;
+
+	Matrix44 pers = Matrix44::Identity;
+	pers.m[0 * 4 + 0] = h / aspect_ratio;
+	pers.m[1 * 4 + 1] = h;
+	pers.m[2 * 4 + 2] = (zfar + znear) / neg_depth;
+	pers.m[2 * 4 + 3] = -1.0;
+	pers.m[3 * 4 + 2] = 2.0 * zfar * znear / neg_depth;
+	pers.m[3 * 4 + 3] = 0.0;
+	return pers;
+}
+
+Matrix44 Perspective::calculateModelviewMatrix() const
+{
+	auto pers = perspectiveMatrix(90.0f);
+	auto translation = translationMatrix(mPos);
+	auto rotation = rotationMatrixFromEuler(mRot);
+	return rotation * translation * pers;
+}
+
+Matrix44 Rotate::calculateModelviewMatrix() const
+{
+	auto translation = translationMatrix(mPos);
+	auto rotation = rotationMatrixFromEuler(mRot);
+	return rotation * translation;
+}
+
 void Rotate::draw()
 {
 	mPos += mPosDelta;
 	mRot += mRotDelta;
 
-	// Translate modelview
-	mModelview.m[3 * 4 + 0] = mPos.x;
-	mModelview.m[3 * 4 + 1] = mPos.y;
-	mModelview.m[3 * 4 + 2] = mPos.z;
+	auto modelview = calculateModelviewMatrix();
 
-	// Rotate modelview
-	mModelview.m[0 * 4 + 0] = cos(mRot.y) * cos(mRot.z);
-	mModelview.m[1 * 4 + 0] = -cos(mRot.x) * sin(mRot.z) + sin(mRot.x) * sin(mRot.y) * cos(mRot.z);
-	mModelview.m[2 * 4 + 0] = sin(mRot.x) * sin(mRot.z) + cos(mRot.x) * sin(mRot.y) * cos(mRot.z);
-	mModelview.m[0 * 4 + 1] = cos(mRot.y) * sin(mRot.z);
-	mModelview.m[1 * 4 + 1] = cos(mRot.x) * cos(mRot.z) + sin(mRot.x) * sin(mRot.y) * sin(mRot.z);
-	mModelview.m[2 * 4 + 1] = -sin(mRot.x) * cos(mRot.z) + cos(mRot.x) * sin(mRot.y) * sin(mRot.z);
-	mModelview.m[0 * 4 + 2] = -sin(mRot.y);
-	mModelview.m[1 * 4 + 2] = sin(mRot.x) * cos(mRot.y);
-	mModelview.m[2 * 4 + 2] = cos(mRot.x) * cos(mRot.y);
-
-	glUniformMatrix4fv(mMVPLoc, 1, GL_FALSE, mModelview.m);
+	glUniformMatrix4fv(mMVPLoc, 1, GL_FALSE, modelview.m);
 
 	Colors::draw();
 }
@@ -253,8 +323,8 @@ bool Rotate::handleEvent(const SDL_Event& ev)
 	if(App::handleEvent(ev))
 		return true;
 
-	static const float posd = 0.1f;
-	static const float rotd = 0.01f;
+	static const float posd = 0.10f;
+	static const float rotd = 0.05f;
 
 	switch(ev.type) {
 		case SDL_KEYDOWN:
@@ -457,6 +527,8 @@ int main(int argc, char** argv)
 			app = new Colors();
 		} else if(!strcmp(argv[1], "--rotate")) {
 			app = new Rotate();
+		} else if(!strcmp(argv[1], "--perspective")) {
+			app = new Perspective();
 		} else {
 			std::cerr << "Unknown parameters.\n";
 			usage(argv[0]);
