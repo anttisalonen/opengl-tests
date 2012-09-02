@@ -22,6 +22,7 @@
 #include "libcommon/Vector3.h"
 #include "libcommon/Matrix44.h"
 #include "libcommon/Texture.h"
+#include "libcommon/Clock.h"
 
 using namespace Common;
 
@@ -537,6 +538,16 @@ class Textures : public Camera {
 		Model mModel;
 };
 
+class AmbientLight : public Textures {
+	public:
+		virtual const char* getFragmentShaderFilename() override;
+		virtual void postInit() override;
+		virtual void draw() override;
+
+	protected:
+		GLint mAmbientLoc;
+};
+
 const char* Triangle::getVertexShaderFilename()
 {
 	return "simple.vert";
@@ -876,6 +887,28 @@ void Textures::bindAttributes()
 	glBindAttribLocation(mProgramObject, 1, "a_Texcoord");
 }
 
+const char* AmbientLight::getFragmentShaderFilename()
+{
+	return "ambient.frag";
+}
+
+void AmbientLight::postInit()
+{
+	Textures::postInit();
+	mAmbientLoc = glGetUniformLocation(mProgramObject, "u_ambientLight");
+}
+
+void AmbientLight::draw()
+{
+	double time = Clock::getTime();
+	float timePoint = Math::degreesToRadians(fmodl(time * 20.0f, 360));
+	float rvalue = sin(timePoint);
+	float gvalue = sin(timePoint + 2.0f * PI / 3.0f);
+	float bvalue = sin(timePoint + 4.0f * PI / 3.0f);
+	glUniform4f(mAmbientLoc, rvalue, gvalue, bvalue, 1.0);
+	Textures::draw();
+}
+
 void usage(const char* p)
 {
 	std::cerr << "Usage: " << p << " [--colors]\n";
@@ -900,6 +933,8 @@ int main(int argc, char** argv)
 			app = new Camera();
 		} else if(!strcmp(argv[1], "--textures")) {
 			app = new Textures();
+		} else if(!strcmp(argv[1], "--ambient")) {
+			app = new AmbientLight();
 		} else {
 			std::cerr << "Unknown parameters.\n";
 			usage(argv[0]);
