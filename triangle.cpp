@@ -78,11 +78,13 @@ class Model {
 		const std::vector<GLfloat>& getVertexCoords() const;
 		const std::vector<GLfloat>& getTexCoords() const;
 		const std::vector<GLushort> getIndices() const;
+		const std::vector<GLfloat>& getNormals() const;
 
 	private:
 		std::vector<GLfloat> mVertexCoords;
 		std::vector<GLfloat> mTexCoords;
 		std::vector<GLushort> mIndices;
+		std::vector<GLfloat> mNormals;
 
 		Assimp::Importer mImporter;
 		const aiScene* mScene;
@@ -122,6 +124,13 @@ Model::Model(const char* filename)
 		const aiVector3D& texcoord = mesh->mTextureCoords[0][i];
 		mTexCoords.push_back(texcoord.x);
 		mTexCoords.push_back(texcoord.y);
+
+		if(mesh->HasNormals()) {
+			const aiVector3D& normal = mesh->mNormals[i];
+			mNormals.push_back(normal.x);
+			mNormals.push_back(normal.y);
+			mNormals.push_back(normal.z);
+		}
 	}
 
 	for(int i = 0; i < mesh->mNumFaces; i++) {
@@ -150,6 +159,11 @@ const std::vector<GLfloat>& Model::getTexCoords() const
 const std::vector<GLushort> Model::getIndices() const
 {
 	return mIndices;
+}
+
+const std::vector<GLfloat>& Model::getNormals() const
+{
+	return mNormals;
 }
 
 class App {
@@ -548,6 +562,19 @@ class AmbientLight : public Textures {
 		GLint mAmbientLoc;
 };
 
+class DirectionalLight : public AmbientLight {
+	public:
+		virtual const char* getVertexShaderFilename() override;
+		virtual const char* getFragmentShaderFilename() override;
+		virtual void bindAttributes() override;
+		virtual void postInit() override;
+		virtual void draw() override;
+
+	protected:
+		GLint mDirectionalLightDirLoc;
+		GLint mDirectionalLightColorLoc;
+};
+
 const char* Triangle::getVertexShaderFilename()
 {
 	return "simple.vert";
@@ -905,8 +932,43 @@ void AmbientLight::draw()
 	float rvalue = sin(timePoint);
 	float gvalue = sin(timePoint + 2.0f * PI / 3.0f);
 	float bvalue = sin(timePoint + 4.0f * PI / 3.0f);
-	glUniform4f(mAmbientLoc, rvalue, gvalue, bvalue, 1.0);
+	glUniform3f(mAmbientLoc, rvalue, gvalue, bvalue);
 	Textures::draw();
+}
+
+const char* DirectionalLight::getVertexShaderFilename()
+{
+	return "directional.vert";
+}
+
+const char* DirectionalLight::getFragmentShaderFilename()
+{
+	return "directional.frag";
+}
+
+void DirectionalLight::postInit()
+{
+	AmbientLight::postInit();
+
+	mDirectionalLightDirLoc = glGetUniformLocation(mProgramObject, "u_directionalLightDirection");
+	mDirectionalLightColorLoc = glGetUniformLocation(mProgramObject, "u_directionalLightColor");
+
+	assert(mModel.getNormals().size());
+	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, &mModel.getNormals()[0]);
+}
+
+void DirectionalLight::draw()
+{
+	glUniform3f(mDirectionalLightDirLoc, -1.0f, -1.0f, -1.0f);
+	glUniform3f(mDirectionalLightColorLoc, 1.0f, 1.0f, 1.0f);
+	AmbientLight::draw();
+}
+
+void DirectionalLight::bindAttributes()
+{
+	AmbientLight::bindAttributes();
+	glEnableVertexAttribArray(2);
+	glBindAttribLocation(mProgramObject, 2, "a_Normal");
 }
 
 void usage(const char* p)
@@ -935,6 +997,8 @@ int main(int argc, char** argv)
 			app = new Textures();
 		} else if(!strcmp(argv[1], "--ambient")) {
 			app = new AmbientLight();
+		} else if(!strcmp(argv[1], "--directional")) {
+			app = new DirectionalLight();
 		} else {
 			std::cerr << "Unknown parameters.\n";
 			usage(argv[0]);
