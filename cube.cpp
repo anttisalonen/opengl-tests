@@ -94,10 +94,10 @@ class Camera : public App {
 
 
 	protected:
-		virtual Matrix44 calculateMeshInstanceModelviewMatrix(const Matrix44& m, const MeshInstance& mi) const;
+		void calculateModelMatrix(const MeshInstance& mi);
 		void updateCamPos();
-		virtual Matrix44 calculateModelviewMatrix(const Matrix44& m, const MeshInstance& mi) const;
-		void updateModelviewMatrix(const MeshInstance& mi);
+		void updateFrameMatrices();
+		void updateMVPMatrix(const MeshInstance& mi);
 		void enableDepthTest();
 
 		Vector3 mCamPos;
@@ -118,6 +118,13 @@ class Camera : public App {
 		bool mPointLightEnabled;
 
 		GLuint mTexID;
+
+		Matrix44 mInverseModelMatrix;
+		Matrix44 mModelMatrix;
+
+		Matrix44 mViewMatrix;
+		Matrix44 mPerspectiveMatrix;
+
 		static Vector3 WorldForward;
 		static Vector3 WorldUp;
 
@@ -142,18 +149,30 @@ void Camera::enableDepthTest()
 	glDepthFunc(GL_LEQUAL);
 }
 
-Matrix44 Camera::calculateMeshInstanceModelviewMatrix(const Matrix44& m, const MeshInstance& mi) const
+void Camera::calculateModelMatrix(const MeshInstance& mi)
 {
 	auto translation = translationMatrix(mi.getPosition());
 	auto rotation = rotationMatrixFromEuler(mi.getRotation());
-	return rotation * translation * m;
+	mModelMatrix = rotation * translation;
+
+	auto invTranslation(translation);
+	invTranslation.m[3] = -invTranslation.m[3];
+	invTranslation.m[7] = -invTranslation.m[7];
+	invTranslation.m[11] = -invTranslation.m[11];
+
+	auto invRotation = rotation.transposed();
+
+	mInverseModelMatrix = invTranslation * invRotation;
 }
 
-void Camera::updateModelviewMatrix(const MeshInstance& mi)
+void Camera::updateMVPMatrix(const MeshInstance& mi)
 {
-	auto modelview = calculateModelviewMatrix(Matrix44::Identity, mi);
+	calculateModelMatrix(mi);
+	auto mvp = mModelMatrix * mViewMatrix * mPerspectiveMatrix;
+	auto imvp = mInverseModelMatrix;
 
-	glUniformMatrix4fv(mUniformLocationMap["u_MVP"], 1, GL_FALSE, modelview.m);
+	glUniformMatrix4fv(mUniformLocationMap["u_MVP"], 1, GL_FALSE, mvp.m);
+	glUniformMatrix4fv(mUniformLocationMap["u_inverseMVP"], 1, GL_FALSE, imvp.m);
 }
 
 Vector3 Camera::WorldForward = Vector3(1, 0, 0);
@@ -201,6 +220,7 @@ Camera::Camera()
 	mMeshInstances.push_back(m);
 
 	mUniformLocationMap["u_MVP"] = -1;
+	mUniformLocationMap["u_inverseMVP"] = -1;
 
 	mUniformLocationMap["s_texture"] = -1;
 
@@ -218,13 +238,12 @@ Camera::Camera()
 	mUniformLocationMap["u_pointLightEnabled"] = -1;
 }
 
-Matrix44 Camera::calculateModelviewMatrix(const Matrix44& m, const MeshInstance& mi) const
+void Camera::updateFrameMatrices()
 {
-	/* TODO: cache these matrices per frame */
-	auto pers = perspectiveMatrix(90.0f, screenWidth, screenHeight);
+	mPerspectiveMatrix = perspectiveMatrix(90.0f, screenWidth, screenHeight);
 	auto camrot = cameraRotationMatrix(mTarget, mUp);
 	auto camtrans = translationMatrix(mCamPos.negated());
-	return calculateMeshInstanceModelviewMatrix(camtrans * camrot * pers, mi);
+	mViewMatrix = camtrans * camrot;
 }
 
 void Camera::updateCamPos()
@@ -325,7 +344,7 @@ void Camera::setupTexturing()
 
 const char* Camera::getVertexShaderFilename()
 {
-	return "pointlight.vert";
+	return "cube.vert";
 }
 
 const char* Camera::getFragmentShaderFilename()
@@ -383,17 +402,18 @@ void Camera::draw()
 	glUniform1i(mUniformLocationMap["u_pointLightEnabled"], mPointLightEnabled);
 
 	double time = Clock::getTime();
+	updateFrameMatrices();
+
 	float pointLightTime = Math::degreesToRadians(fmodl(time * 160.0f, 360));
 	if(mPointLightEnabled) {
 		glUniform3f(mUniformLocationMap["u_pointLightAttenuation"], 0.0f, 0.0f, 6.0f);
 		glUniform3f(mUniformLocationMap["u_pointLightColor"], 1.0f, 1.0f, 1.0f);
 	}
 
+	Matrix44 directionalLightMatrix;
 	if(mDirectionalLightEnabled) {
-		Vector3 dir(-1, -1, -1);
-		dir.normalize();
-		glUniform3f(mUniformLocationMap["u_directionalLightDirection"], dir.x, dir.y, dir.z);
 		glUniform3f(mUniformLocationMap["u_directionalLightColor"], 1.0f, 1.0f, 1.0f);
+		directionalLightMatrix = rotationMatrixFromEuler(Vector3(QUARTER_PI, QUARTER_PI, QUARTER_PI));
 	}
 
 	{
@@ -413,13 +433,21 @@ void Camera::draw()
 	updateCamPos();
 	for(auto mi : mMeshInstances) {
 		mi.updatePosition(0.01f);
-		updateModelviewMatrix(mi);
+		updateMVPMatrix(mi);
 
 		if(mPointLightEnabled) {
+			// inverse translation matrix
 			Vector3 plpos(sin(pointLightTime), cos(pointLightTime), 0.5f);
 			Vector3 plposrel = mi.getPosition() - plpos;
 			glUniform3f(mUniformLocationMap["u_pointLightPosition"],
 					plposrel.x, plposrel.y, plposrel.z);
+		}
+
+		if(mDirectionalLightEnabled) {
+			// inverse rotation matrix (normal matrix)
+			Vector3 dir(-1, -1, -1);
+			glUniform3f(mUniformLocationMap["u_directionalLightDirection"], dir.x, dir.y, dir.z);
+			glUniform3f(mUniformLocationMap["u_directionalLightColor"], 1.0f, 1.0f, 1.0f);
 		}
 
 		glDrawElements(GL_TRIANGLES, mi.getModel().getIndices().size(),
