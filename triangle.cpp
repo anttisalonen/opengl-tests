@@ -24,6 +24,9 @@
 #include "libcommon/Texture.h"
 #include "libcommon/Clock.h"
 
+#include "Model.h"
+#include "App.h"
+
 using namespace Common;
 
 static const int screenWidth = 800;
@@ -72,403 +75,9 @@ GLushort cubeindices[] = {0, 1, 2,
                        5, 6, 4,
                        4, 7, 6};
 
-class Model {
-	public:
-		Model(const char* filename);
-		const std::vector<GLfloat>& getVertexCoords() const;
-		const std::vector<GLfloat>& getTexCoords() const;
-		const std::vector<GLushort> getIndices() const;
-		const std::vector<GLfloat>& getNormals() const;
-
-	private:
-		std::vector<GLfloat> mVertexCoords;
-		std::vector<GLfloat> mTexCoords;
-		std::vector<GLushort> mIndices;
-		std::vector<GLfloat> mNormals;
-
-		Assimp::Importer mImporter;
-		const aiScene* mScene;
-};
-
-Model::Model(const char* filename)
-{
-	mScene = mImporter.ReadFile(filename,
-			aiProcess_CalcTangentSpace |
-			aiProcess_Triangulate |
-			aiProcess_JoinIdenticalVertices |
-			aiProcess_SortByPType);
-	if(!mScene) {
-		std::cerr << "Unable to load model from " << filename << "\n";
-		throw std::runtime_error("Error while loading model");
-	}
-	if(mScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !mScene->mNumMeshes) {
-		std::cerr << "Model file " << filename << " is incomplete\n";
-		throw std::runtime_error("Error while loading model");
-	}
-
-	aiMesh* mesh = mScene->mMeshes[0];
-	if(!mesh->HasTextureCoords(0) || mesh->GetNumUVChannels() != 1) {
-		std::cerr << "Model file " << filename << " has unsupported texture coordinates.\n";
-		throw std::runtime_error("Error while loading model");
-	}
-
-	std::cout << mesh->mNumVertices << " vertices.\n";
-	std::cout << mesh->mNumFaces << " faces.\n";
-
-	for(int i = 0; i < mesh->mNumVertices; i++) {
-		const aiVector3D& vertex = mesh->mVertices[i];
-		mVertexCoords.push_back(vertex.x);
-		mVertexCoords.push_back(vertex.y);
-		mVertexCoords.push_back(vertex.z);
-
-		const aiVector3D& texcoord = mesh->mTextureCoords[0][i];
-		mTexCoords.push_back(texcoord.x);
-		mTexCoords.push_back(texcoord.y);
-
-		if(mesh->HasNormals()) {
-			const aiVector3D& normal = mesh->mNormals[i];
-			mNormals.push_back(normal.x);
-			mNormals.push_back(normal.y);
-			mNormals.push_back(normal.z);
-		}
-	}
-
-	for(int i = 0; i < mesh->mNumFaces; i++) {
-		const aiFace& face = mesh->mFaces[i];
-		if(face.mNumIndices != 3) {
-			std::cerr << "Warning: number of indices should be three.\n";
-			throw std::runtime_error("Error while loading model");
-		} else {
-			for(int j = 0; j < face.mNumIndices; j++) {
-				mIndices.push_back(face.mIndices[j]);
-			}
-		}
-	}
-}
-
-const std::vector<GLfloat>& Model::getVertexCoords() const
-{
-	return mVertexCoords;
-}
-
-const std::vector<GLfloat>& Model::getTexCoords() const
-{
-	return mTexCoords;
-}
-
-const std::vector<GLushort> Model::getIndices() const
-{
-	return mIndices;
-}
-
-const std::vector<GLfloat>& Model::getNormals() const
-{
-	return mNormals;
-}
-
-class App {
-	public:
-		App();
-		virtual ~App() { }
-		void run();
-		virtual const char* getVertexShaderFilename() = 0;
-		virtual const char* getFragmentShaderFilename() = 0;
-		virtual void bindAttributes() = 0;
-		virtual void draw() = 0;
-		virtual void postInit() { }
-		virtual bool handleEvent(const SDL_Event& ev);
-
-	protected:
-		static Matrix44 translationMatrix(const Vector3& v);
-		static Matrix44 rotationMatrixFromEuler(const Vector3& v);
-		static Matrix44 perspectiveMatrix(float fov);
-		static Matrix44 cameraRotationMatrix(const Vector3& tgt, const Vector3& up);
-		static GLuint loadTexture(const char* filename);
-
-		GLuint mProgramObject;
-		std::map<const char*, GLint> mUniformLocationMap;
-
-	private:
-		void init();
-		bool handleInput();
-		GLuint loadShader(GLenum type, const char* src);
-		GLuint loadShaderFromFile(GLenum type, const char* filename);
-
-		SDL_Surface* mScreen;
-		bool mInit;
-};
-
-Matrix44 App::perspectiveMatrix(float fov)
-{
-	const float aspect_ratio = screenWidth / screenHeight;
-	const float znear = 0.1f;
-	const float zfar = 200.0f;
-	const float h = 1.0 / tan(Math::degreesToRadians(fov * 0.5f));
-	const float neg_depth = znear - zfar;
-
-	Matrix44 pers = Matrix44::Identity;
-	pers.m[0 * 4 + 0] = h / aspect_ratio;
-	pers.m[1 * 4 + 1] = h;
-	pers.m[2 * 4 + 2] = (zfar + znear) / neg_depth;
-	pers.m[2 * 4 + 3] = -1.0;
-	pers.m[3 * 4 + 2] = 2.0 * zfar * znear / neg_depth;
-	pers.m[3 * 4 + 3] = 0.0;
-	return pers;
-}
-
-Matrix44 App::cameraRotationMatrix(const Vector3& tgt, const Vector3& up)
-{
-	Vector3 n(tgt.negated().normalized());
-	auto u = up.normalized().cross(n);
-	auto v = n.cross(u);
-	auto m = Matrix44::Identity;
-	m.m[0] = u.x;
-	m.m[1] = v.x;
-	m.m[2] = n.x;
-	m.m[4] = u.y;
-	m.m[5] = v.y;
-	m.m[6] = n.y;
-	m.m[8] = u.z;
-	m.m[9] = v.z;
-	m.m[10] = n.z;
-
-	return m;
-}
-
-GLuint App::loadShaderFromFile(GLenum type, const char* filename)
-{
-	std::ifstream ifs(filename);
-	if(ifs.bad()) {
-		return 0;
-	}
-	std::string content((std::istreambuf_iterator<char>(ifs)),
-			(std::istreambuf_iterator<char>()));
-	return loadShader(type, content.c_str());
-}
-
-GLuint App::loadShader(GLenum type, const char* src)
-{
-	GLuint shader;
-	GLint compiled;
-
-	shader = glCreateShader(type);
-
-	if(shader == 0)
-		return 0;
-
-	glShaderSource(shader, 1, &src, NULL);
-
-	glCompileShader(shader);
-
-	glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-	if(!compiled) {
-		GLint infoLen = 0;
-		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
-
-		if(infoLen > 1) {
-			char* infoLog = new char[infoLen];
-			glGetShaderInfoLog(shader, infoLen, NULL, infoLog);
-			std::cerr << "Error compiling shader: " << infoLog << "\n";
-			delete[] infoLog;
-		}
-
-		glDeleteShader(shader);
-		return 0;
-	}
-
-	return shader;
-}
-
-App::App()
-	: mInit(false)
-{
-	if (SDL_Init(SDL_INIT_EVERYTHING) == -1) {
-		std::cerr << "Unable to init SDL: " << SDL_GetError() << "\n";
-		exit(1);
-	}
-	mScreen = SDL_SetVideoMode(screenWidth, screenHeight, 32, SDL_HWSURFACE | SDL_DOUBLEBUF | SDL_OPENGL);
-	if(!mScreen) {
-		std::cerr << "Unable to set video mode\n";
-		exit(1);
-	}
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-
-	if(IMG_Init(IMG_INIT_PNG) == -1) {
-		std::cerr << "Unable to init SDL_image: " << IMG_GetError() << "\n";
-		exit(1);
-	}
-	SDL_EnableKeyRepeat(0, SDL_DEFAULT_REPEAT_INTERVAL);
-	SDL_WM_SetCaption("OpenGL tests", nullptr);
-}
-
-
-void App::init()
-{
-	GLuint vshader;
-	GLuint fshader;
-	GLint linked;
-
-	GLenum glewerr = glewInit();
-	if (glewerr != GLEW_OK) {
-		std::cerr << "Unable to initialise GLEW.\n";
-		exit(1);
-	}
-	if (!GLEW_VERSION_2_1) {
-		std::cerr << "OpenGL 2.1 not supported.\n";
-		exit(1);
-	}
-
-	vshader = loadShaderFromFile(GL_VERTEX_SHADER, getVertexShaderFilename());
-	fshader = loadShaderFromFile(GL_FRAGMENT_SHADER, getFragmentShaderFilename());
-
-	mProgramObject = glCreateProgram();
-
-	if(mProgramObject == 0) {
-		std::cerr << "Unable to create program.\n";
-		exit(1);
-	}
-
-	glAttachShader(mProgramObject, vshader);
-	glAttachShader(mProgramObject, fshader);
-
-	bindAttributes();
-	glLinkProgram(mProgramObject);
-
-	glGetProgramiv(mProgramObject, GL_LINK_STATUS, &linked);
-
-	if(!linked) {
-		GLint infoLen = 0;
-		glGetProgramiv(mProgramObject, GL_INFO_LOG_LENGTH, &infoLen);
-		if(infoLen > 1) {
-			char* infoLog = new char[infoLen];
-			glGetProgramInfoLog(mProgramObject, infoLen, NULL, infoLog);
-			std::cerr << "Error linking program: " << infoLog << "\n";
-			delete[] infoLog;
-		} else {
-			std::cerr << "Unknown error when linking program.\n";
-		}
-
-		glDeleteProgram(mProgramObject);
-		exit(1);
-	}
-
-	postInit();
-
-	for(auto& p : mUniformLocationMap) {
-		p.second = glGetUniformLocation(mProgramObject, p.first);
-	}
-
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glViewport(0, 0, screenWidth, screenHeight);
-
-	glUseProgram(mProgramObject);
-}
-
-void App::run()
-{
-	if(!mInit) {
-		mInit = true;
-		init();
-	}
-
-	while(1) {
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		if(handleInput()) {
-			break;
-		}
-		draw();
-		SDL_GL_SwapBuffers();
-	}
-
-}
-
-GLuint App::loadTexture(const char* filename)
-{
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-	GLuint texture = Texture::loadTexture(filename);
-	glBindTexture(GL_TEXTURE_2D, texture);
-	if (GLEW_VERSION_3_0) {
-		glGenerateMipmap(GL_TEXTURE_2D);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	} else {
-		/* TODO: add mipmap generation */
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	}
-	return texture;
-}
-
-Matrix44 App::translationMatrix(const Vector3& v)
-{
-	Matrix44 translation = Matrix44::Identity;
-	translation.m[3 * 4 + 0] = v.x;
-	translation.m[3 * 4 + 1] = v.y;
-	translation.m[3 * 4 + 2] = v.z;
-	return translation;
-}
-
-Matrix44 App::rotationMatrixFromEuler(const Vector3& v)
-{
-	Matrix44 rotation = Matrix44::Identity;
-	float cx = cos(v.x);
-	float cy = cos(v.y);
-	float cz = cos(v.z);
-	float sx = sin(v.x);
-	float sy = sin(v.y);
-	float sz = sin(v.z);
-
-	rotation.m[0 * 4 + 0] = cy * cz;
-	rotation.m[1 * 4 + 0] = -cx * sz + sx * sy * cz;
-	rotation.m[2 * 4 + 0] = sx * sz + cx * sy * cz;
-	rotation.m[0 * 4 + 1] = cy * sz;
-	rotation.m[1 * 4 + 1] = cx * cz + sx * sy * sz;
-	rotation.m[2 * 4 + 1] = -sx * cz + cx * sy * sz;
-	rotation.m[0 * 4 + 2] = -sy;
-	rotation.m[1 * 4 + 2] = sx * cy;
-	rotation.m[2 * 4 + 2] = cx * cy;
-
-	return rotation;
-}
-
-bool App::handleEvent(const SDL_Event& ev)
-{
-	switch(ev.type) {
-		case SDL_KEYDOWN:
-			switch(ev.key.keysym.sym) {
-				case SDLK_ESCAPE:
-					return true;
-
-				default:
-					break;
-			}
-			break;
-
-		case SDL_QUIT:
-			return true;
-
-		default:
-			break;
-	}
-
-	return false;
-}
-
-bool App::handleInput()
-{
-	SDL_Event event;
-
-	while(SDL_PollEvent(&event)) {
-		if(handleEvent(event)) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
 class Triangle : public App {
 	public:
+		Triangle();
 		virtual const char* getVertexShaderFilename() override;
 		virtual const char* getFragmentShaderFilename() override;
 		virtual void bindAttributes() override;
@@ -477,6 +86,7 @@ class Triangle : public App {
 
 class Colors : public App {
 	public:
+		Colors();
 		virtual const char* getVertexShaderFilename() override;
 		virtual const char* getFragmentShaderFilename() override;
 		virtual void bindAttributes() override;
@@ -590,6 +200,11 @@ class PointLight : public DirectionalLight {
 		bool mPointLightEnabled;
 };
 
+Triangle::Triangle()
+	: App(screenWidth, screenHeight)
+{
+}
+
 const char* Triangle::getVertexShaderFilename()
 {
 	return "simple.vert";
@@ -610,6 +225,11 @@ void Triangle::draw()
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, trianglevertices);
 	glEnableVertexAttribArray(0);
 	glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+Colors::Colors()
+	: App(screenWidth, screenHeight)
+{
 }
 
 const char* Colors::getVertexShaderFilename()
@@ -755,7 +375,7 @@ Perspective::Perspective()
 
 Matrix44 Perspective::calculateModelviewMatrix(const Matrix44& m) const
 {
-	auto pers = perspectiveMatrix(90.0f);
+	auto pers = perspectiveMatrix(90.0f, screenWidth, screenHeight);
 	return Rotate::calculateModelviewMatrix(pers);
 }
 
@@ -784,7 +404,7 @@ Camera::Camera()
 
 Matrix44 Camera::calculateModelviewMatrix(const Matrix44& m) const
 {
-	auto pers = perspectiveMatrix(90.0f);
+	auto pers = perspectiveMatrix(90.0f, screenWidth, screenHeight);
 	auto camrot = cameraRotationMatrix(mTarget, mUp);
 	auto camtrans = translationMatrix(mCamPos.negated());
 	return Rotate::calculateModelviewMatrix(camtrans * camrot * pers);

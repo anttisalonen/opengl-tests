@@ -1,3 +1,5 @@
 triangle
 *.trace
 cube
+*.o
+*.a
