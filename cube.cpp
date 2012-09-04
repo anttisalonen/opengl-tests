@@ -168,12 +168,12 @@ void Camera::updateMVPMatrix(const MeshInstance& mi)
 	glUniformMatrix4fv(mUniformLocationMap["u_inverseMVP"], 1, GL_FALSE, imvp.m);
 }
 
-Vector3 Camera::WorldForward = Vector3(1, 0, 0);
-Vector3 Camera::WorldUp      = Vector3(0, 0, 1);
+Vector3 Camera::WorldForward = Vector3(0, 0, 1);
+Vector3 Camera::WorldUp      = Vector3(0, 1, 0);
 
 Camera::Camera()
 	: App(screenWidth, screenHeight),
-	mCamPos(Vector3(-2.2f, 0.0f, 0.0f)),
+	mCamPos(Vector3(0.0f, 0.0f, -4.2f)),
 	mTarget(WorldForward),
 	mUp(WorldUp),
 	mPosStep(0.1f),
