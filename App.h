@@ -23,13 +23,7 @@ class App {
 		virtual void postInit() { }
 		virtual bool handleEvent(const SDL_Event& ev);
 
-		static Common::Matrix44 translationMatrix(const Common::Vector3& v);
-		static Common::Matrix44 rotationMatrixFromEuler(const Common::Vector3& v);
-		static Common::Matrix44 perspectiveMatrix(float fov, int screenwidth, int screenheight);
-		static Common::Matrix44 cameraRotationMatrix(const Common::Vector3& tgt, const Common::Vector3& up);
-
 	protected:
-		static GLuint loadTexture(const char* filename);
 
 		GLuint mProgramObject;
 		std::map<const char*, GLint> mUniformLocationMap;
@@ -37,8 +31,6 @@ class App {
 	private:
 		void init();
 		bool handleInput();
-		GLuint loadShader(GLenum type, const char* src);
-		GLuint loadShaderFromFile(GLenum type, const char* filename);
 
 		SDL_Surface* mScreen;
 		bool mInit;

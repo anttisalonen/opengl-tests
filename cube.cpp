@@ -22,62 +22,12 @@
 
 #include "Model.h"
 #include "App.h"
+#include "HelperFunctions.h"
 
 using namespace Common;
 
 static const int screenWidth = 800;
 static const int screenHeight = 600;
-
-class MeshInstance {
-	public:
-		MeshInstance(const Model& m);
-		const Vector3& getPosition() const;
-		const Matrix44& getRotation() const;
-		void setPosition(const Vector3& v);
-		void setRotationFromEuler(const Vector3& v);
-		void setRotation(const Matrix44& m);
-		const Model& getModel() const;
-
-	private:
-		const Model& mModel;
-		Vector3 mPosition;
-		Matrix44 mRotation;
-};
-
-MeshInstance::MeshInstance(const Model& m)
-	: mModel(m)
-{
-}
-
-const Vector3& MeshInstance::getPosition() const
-{
-	return mPosition;
-}
-
-const Matrix44& MeshInstance::getRotation() const
-{
-	return mRotation;
-}
-
-void MeshInstance::setPosition(const Vector3& v)
-{
-	mPosition = v;
-}
-
-void MeshInstance::setRotationFromEuler(const Vector3& v)
-{
-	mRotation = App::rotationMatrixFromEuler(v);
-}
-
-void MeshInstance::setRotation(const Matrix44& m)
-{
-	mRotation = m;
-}
-
-const Model& MeshInstance::getModel() const
-{
-	return mModel;
-}
 
 class Camera : public App {
 	public:
@@ -144,7 +94,7 @@ void Camera::enableDepthTest()
 
 void Camera::calculateModelMatrix(const MeshInstance& mi)
 {
-	auto translation = translationMatrix(mi.getPosition());
+	auto translation = HelperFunctions::translationMatrix(mi.getPosition());
 	auto rotation = mi.getRotation();
 	mModelMatrix = rotation * translation;
 
@@ -231,9 +181,9 @@ Camera::Camera()
 
 void Camera::updateFrameMatrices()
 {
-	mPerspectiveMatrix = perspectiveMatrix(90.0f, screenWidth, screenHeight);
-	auto camrot = cameraRotationMatrix(mTarget, mUp);
-	auto camtrans = translationMatrix(mCamPos.negated());
+	mPerspectiveMatrix = HelperFunctions::perspectiveMatrix(90.0f, screenWidth, screenHeight);
+	auto camrot = HelperFunctions::cameraRotationMatrix(mTarget, mUp);
+	auto camtrans = HelperFunctions::translationMatrix(mCamPos.negated());
 	mViewMatrix = camtrans * camrot;
 }
 
@@ -329,7 +279,7 @@ void Camera::handleMouseMove(int xdiff, int ydiff)
 
 void Camera::setupTexturing()
 {
-	mTexID = App::loadTexture("snow.jpg");
+	mTexID = HelperFunctions::loadTexture("snow.jpg");
 	glEnable(GL_TEXTURE_2D);
 }
 

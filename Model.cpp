@@ -3,6 +3,10 @@
 #include <stdexcept>
 #include <iostream>
 
+#include "HelperFunctions.h"
+
+using namespace Common;
+
 Model::Model(const char* filename)
 {
 	mScene = mImporter.ReadFile(filename,
@@ -77,6 +81,47 @@ const std::vector<GLushort> Model::getIndices() const
 const std::vector<GLfloat>& Model::getNormals() const
 {
 	return mNormals;
+}
+
+bool Model::isTextured() const
+{
+	return !mTexCoords.empty();
+}
+
+
+MeshInstance::MeshInstance(const Model& m)
+	: mModel(m)
+{
+}
+
+const Vector3& MeshInstance::getPosition() const
+{
+	return mPosition;
+}
+
+const Matrix44& MeshInstance::getRotation() const
+{
+	return mRotation;
+}
+
+void MeshInstance::setPosition(const Vector3& v)
+{
+	mPosition = v;
+}
+
+void MeshInstance::setRotationFromEuler(const Vector3& v)
+{
+	mRotation = HelperFunctions::rotationMatrixFromEuler(v);
+}
+
+void MeshInstance::setRotation(const Matrix44& m)
+{
+	mRotation = m;
+}
+
+const Model& MeshInstance::getModel() const
+{
+	return mModel;
 }
 
 

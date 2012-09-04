@@ -26,6 +26,7 @@
 
 #include "Model.h"
 #include "App.h"
+#include "HelperFunctions.h"
 
 using namespace Common;
 
@@ -295,8 +296,8 @@ void Rotate::enableDepthTest()
 
 Matrix44 Rotate::calculateModelviewMatrix(const Matrix44& m) const
 {
-	auto translation = translationMatrix(mPos);
-	auto rotation = rotationMatrixFromEuler(mRot);
+	auto translation = HelperFunctions::translationMatrix(mPos);
+	auto rotation = HelperFunctions::rotationMatrixFromEuler(mRot);
 	return rotation * translation * m;
 }
 
@@ -375,7 +376,7 @@ Perspective::Perspective()
 
 Matrix44 Perspective::calculateModelviewMatrix(const Matrix44& m) const
 {
-	auto pers = perspectiveMatrix(90.0f, screenWidth, screenHeight);
+	auto pers = HelperFunctions::perspectiveMatrix(90.0f, screenWidth, screenHeight);
 	return Rotate::calculateModelviewMatrix(pers);
 }
 
@@ -404,9 +405,9 @@ Camera::Camera()
 
 Matrix44 Camera::calculateModelviewMatrix(const Matrix44& m) const
 {
-	auto pers = perspectiveMatrix(90.0f, screenWidth, screenHeight);
-	auto camrot = cameraRotationMatrix(mTarget, mUp);
-	auto camtrans = translationMatrix(mCamPos.negated());
+	auto pers = HelperFunctions::perspectiveMatrix(90.0f, screenWidth, screenHeight);
+	auto camrot = HelperFunctions::cameraRotationMatrix(mTarget, mUp);
+	auto camtrans = HelperFunctions::translationMatrix(mCamPos.negated());
 	return Rotate::calculateModelviewMatrix(camtrans * camrot * pers);
 }
 
@@ -531,7 +532,7 @@ void Textures::postInit()
 
 void Textures::setupTexturing()
 {
-	mTexID = App::loadTexture("snow.jpg");
+	mTexID = HelperFunctions::loadTexture("snow.jpg");
 	glEnable(GL_TEXTURE_2D);
 }
 

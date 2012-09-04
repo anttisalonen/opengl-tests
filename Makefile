@@ -3,7 +3,7 @@ CXXFLAGS = -std=c++11 -Wall -Werror $(shell sdl-config --cflags) -O2
 LDFLAGS  = $(shell sdl-config --libs) -lSDL_image -lGL -lGLEW -lassimp
 AR       = ar
 
-default: triangle cube
+default: triangle cube Scene.o
 
 
 COMMONDIR = libcommon
@@ -15,7 +15,7 @@ $(COMMONLIB): $(COMMONSRCS)
 	make -C $(COMMONDIR)
 
 
-GLCOMMONSRCS = Model.cpp App.cpp
+GLCOMMONSRCS = Model.cpp App.cpp HelperFunctions.cpp
 GLCOMMONOBJS = $(GLCOMMONSRCS:.cpp=.o)
 GLCOMMONLIB = libglcommon.a
 
@@ -29,6 +29,8 @@ triangle: $(COMMONLIB) $(GLCOMMONLIB) triangle.cpp
 
 cube: $(COMMONLIB) $(GLCOMMONLIB) cube.cpp
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o cube cube.cpp $(GLCOMMONLIB) $(COMMONLIB)
+
+Scene.o: Scene.cpp
 
 clean:
 	rm -rf cube

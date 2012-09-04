@@ -10,6 +10,9 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#include "libcommon/Vector3.h"
+#include "libcommon/Matrix44.h"
+
 class Model {
 	public:
 		Model(const char* filename);
@@ -17,6 +20,7 @@ class Model {
 		const std::vector<GLfloat>& getTexCoords() const;
 		const std::vector<GLushort> getIndices() const;
 		const std::vector<GLfloat>& getNormals() const;
+		bool isTextured() const;
 
 	private:
 		std::vector<GLfloat> mVertexCoords;
@@ -26,6 +30,22 @@ class Model {
 
 		Assimp::Importer mImporter;
 		const aiScene* mScene;
+};
+
+class MeshInstance {
+	public:
+		MeshInstance(const Model& m);
+		const Common::Vector3& getPosition() const;
+		const Common::Matrix44& getRotation() const;
+		void setPosition(const Common::Vector3& v);
+		void setRotationFromEuler(const Common::Vector3& v);
+		void setRotation(const Common::Matrix44& m);
+		const Model& getModel() const;
+
+	private:
+		const Model& mModel;
+		Common::Vector3 mPosition;
+		Common::Matrix44 mRotation;
 };
 
 
