@@ -31,19 +31,17 @@ static const int screenHeight = 600;
 class MeshInstance {
 	public:
 		MeshInstance(const Model& m);
-		void updatePosition(float time);
 		const Vector3& getPosition() const;
-		const Vector3& getRotation() const;
+		const Matrix44& getRotation() const;
 		void setPosition(const Vector3& v);
-		void setRotation(const Vector3& v);
+		void setRotationFromEuler(const Vector3& v);
+		void setRotation(const Matrix44& m);
 		const Model& getModel() const;
 
 	private:
 		const Model& mModel;
 		Vector3 mPosition;
-		Vector3 mRotation;
-		Vector3 mPosDelta;
-		Vector3 mRotDelta;
+		Matrix44 mRotation;
 };
 
 MeshInstance::MeshInstance(const Model& m)
@@ -51,18 +49,12 @@ MeshInstance::MeshInstance(const Model& m)
 {
 }
 
-void MeshInstance::updatePosition(float time)
-{
-	mPosition += mPosDelta * time;
-	mRotation += mRotDelta * time;
-}
-
 const Vector3& MeshInstance::getPosition() const
 {
 	return mPosition;
 }
 
-const Vector3& MeshInstance::getRotation() const
+const Matrix44& MeshInstance::getRotation() const
 {
 	return mRotation;
 }
@@ -72,9 +64,14 @@ void MeshInstance::setPosition(const Vector3& v)
 	mPosition = v;
 }
 
-void MeshInstance::setRotation(const Vector3& v)
+void MeshInstance::setRotationFromEuler(const Vector3& v)
 {
-	mRotation = v;
+	mRotation = App::rotationMatrixFromEuler(v);
+}
+
+void MeshInstance::setRotation(const Matrix44& m)
+{
+	mRotation = m;
 }
 
 const Model& MeshInstance::getModel() const
@@ -139,10 +136,6 @@ class Camera : public App {
 
 };
 
-class PointLight : public Camera {
-	public:
-};
-
 void Camera::enableDepthTest()
 {
 	glEnable(GL_DEPTH_TEST);
@@ -152,7 +145,7 @@ void Camera::enableDepthTest()
 void Camera::calculateModelMatrix(const MeshInstance& mi)
 {
 	auto translation = translationMatrix(mi.getPosition());
-	auto rotation = rotationMatrixFromEuler(mi.getRotation());
+	auto rotation = mi.getRotation();
 	mModelMatrix = rotation * translation;
 
 	auto invTranslation(translation);
@@ -207,14 +200,12 @@ Camera::Camera()
 
 	MeshInstance m(mModel);
 	m.setPosition(Vector3(-0.1f, 0.0f, 0.1f));
-	m.setRotation(Vector3(Math::degreesToRadians(0),
-				Math::degreesToRadians(0),
-				Math::degreesToRadians(0)));
+	m.setRotation(Matrix44::Identity);
 	mMeshInstances.push_back(m);
 
 	MeshInstance m2(mModel);
 	m.setPosition(Vector3(3.0f, 3.0f, 0.0f));
-	m.setRotation(Vector3(Math::degreesToRadians(149),
+	m.setRotationFromEuler(Vector3(Math::degreesToRadians(149),
 				Math::degreesToRadians(150),
 				Math::degreesToRadians(38)));
 	mMeshInstances.push_back(m);
@@ -410,10 +401,8 @@ void Camera::draw()
 		glUniform3f(mUniformLocationMap["u_pointLightColor"], 1.0f, 1.0f, 1.0f);
 	}
 
-	Matrix44 directionalLightMatrix;
 	if(mDirectionalLightEnabled) {
 		glUniform3f(mUniformLocationMap["u_directionalLightColor"], 1.0f, 1.0f, 1.0f);
-		directionalLightMatrix = rotationMatrixFromEuler(Vector3(QUARTER_PI, QUARTER_PI, QUARTER_PI));
 	}
 
 	{
@@ -432,7 +421,6 @@ void Camera::draw()
 
 	updateCamPos();
 	for(auto mi : mMeshInstances) {
-		mi.updatePosition(0.01f);
 		updateMVPMatrix(mi);
 
 		if(mPointLightEnabled) {
@@ -463,7 +451,7 @@ void usage(const char* p)
 int main(int argc, char** argv)
 {
 	App* app = nullptr;
-	app = new PointLight();
+	app = new Camera();
 
 	try {
 		app->run();
