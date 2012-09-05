@@ -5,14 +5,195 @@
 #include "HelperFunctions.h"
 
 #include "libcommon/Texture.h"
+#include "libcommon/Math.h"
 
 using namespace Common;
 
 namespace Scene {
 
+const Vector3 WorldForward = Vector3(1, 0, 0);
+const Vector3 WorldUp      = Vector3(0, 1, 0);
 
-Vector3 Scene::WorldForward = Vector3(1, 0, 0);
-Vector3 Scene::WorldUp      = Vector3(0, 1, 0);
+Camera::Camera()
+	: mTarget(WorldForward),
+	mUp(WorldUp),
+	mHRot(0.0f),
+	mVRot(0.0f)
+{
+}
+
+void Camera::lookAt(const Common::Vector3& tgt, const Common::Vector3& right)
+{
+#if 0
+	/* TODO: this doesn't work due to mHRot and mVRot. */
+	auto v = tgt - mPosition;
+	if(v.null() || right.null())
+		return;
+
+	auto t = v.normalized();
+	auto u = right.cross(t.normalized());
+	if(t.null() || u.null())
+		return;
+
+	mTarget = t;
+	mUp = u;
+#endif
+}
+
+void Camera::setMovementKey(const std::string& key, float forward,
+		float up, float sideways)
+{
+	std::tuple<float, float, float> t(forward, up, sideways);
+	mMovement[key] = t;
+	mMovementCache[t] = calculateMovement(t);
+}
+
+Vector3 Camera::calculateMovement(const std::tuple<float, float, float>& v)
+{
+	Vector3 r;
+	r += mTarget * std::get<0>(v);
+	r += mUp * std::get<1>(v);
+	r += mTarget.cross(mUp) * std::get<2>(v);
+	return r;
+}
+
+void Camera::clearMovementKey(const std::string& key)
+{
+	auto t = mMovement[key];
+	mMovementCache[t].zero();
+	std::get<0>(t) = 0;
+	std::get<1>(t) = 0;
+	std::get<2>(t) = 0;
+}
+
+void Camera::applyMovementKeys(float coeff)
+{
+	for(auto p : mMovement) {
+		mPosition += calculateMovement(p.second);
+	}
+}
+
+void Camera::setForwardMovement(float speed)
+{
+	setMovementKey("Forward", speed, 0, 0);
+}
+
+void Camera::clearForwardMovement()
+{
+	clearMovementKey("Forward");
+}
+
+void Camera::setSidewaysMovement(float speed)
+{
+	setMovementKey("Sideways", 0, 0, speed);
+}
+
+void Camera::clearSidewaysMovement()
+{
+	clearMovementKey("Sideways");
+}
+
+void Camera::setUpwardsMovement(float speed)
+{
+	setMovementKey("Upwards", 0, speed, 0);
+}
+
+void Camera::clearUpwardsMovement()
+{
+	clearMovementKey("Upwards");
+}
+
+void Camera::rotate(float yaw, float pitch)
+{
+	mHRot += yaw;
+	mVRot += pitch;
+
+	Vector3 view = Math::rotate3D(WorldForward, mHRot, WorldUp).normalized();
+
+	auto haxis = WorldUp.cross(view).normalized();
+
+	mTarget = Math::rotate3D(view, -mVRot, haxis).normalized();
+	mUp = mTarget.cross(haxis).normalized();
+
+	for(auto p : mMovement) {
+		mMovementCache[p.second] = calculateMovement(p.second);
+	}
+}
+
+const Common::Vector3& Camera::getTargetVector() const
+{
+	return mTarget;
+}
+
+const Common::Vector3& Camera::getUpVector() const
+{
+	return mUp;
+}
+
+Light::Light(const Common::Color& col, bool on)
+	: mOn(on)
+{
+	setColor(col);
+}
+
+void Light::setState(bool on)
+{
+	mOn = on;
+}
+
+bool Light::isOn() const
+{
+	return mOn;
+}
+
+const Common::Vector3& Light::getColor() const
+{
+	return mColor;
+}
+
+void Light::setColor(const Common::Color& c)
+{
+	mColor = Vector3(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f);
+}
+
+void Light::setColor(const Common::Vector3& c)
+{
+	mColor = c;
+}
+
+PointLight::PointLight(const Common::Vector3& pos, const Common::Vector3& attenuation, const Common::Color& col, bool on)
+	: Light(col, on),
+	Movable(pos),
+	mAttenuation(attenuation)
+{
+}
+
+const Common::Vector3& PointLight::getAttenuation() const
+{
+	return mAttenuation;
+}
+
+void PointLight::setAttenuation(const Common::Vector3& v)
+{
+	mAttenuation = v;
+}
+
+DirectionalLight::DirectionalLight(const Common::Vector3& dir, const Common::Color& col, bool on)
+	: Light(col, true),
+	mDirection(dir.normalized())
+{
+}
+
+const Common::Vector3& DirectionalLight::getDirection() const
+{
+	return mDirection;
+}
+
+void DirectionalLight::setDirection(const Common::Vector3& dir)
+{
+	mDirection = dir.normalized();
+}
+
 
 
 Scene::Scene(float screenWidth, float screenHeight)
@@ -73,10 +254,6 @@ Scene::Scene(float screenWidth, float screenHeight)
 	HelperFunctions::enableDepthTest();
 	glEnable(GL_TEXTURE_2D);
 
-	for(auto& p : mUniformLocationMap) {
-		p.second = glGetUniformLocation(mProgramObject, p.first);
-	}
-
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glViewport(0, 0, screenWidth, screenHeight);
 
@@ -99,6 +276,11 @@ Scene::Scene(float screenWidth, float screenHeight)
 	mUniformLocationMap["u_ambientLightEnabled"] = -1;
 	mUniformLocationMap["u_directionalLightEnabled"] = -1;
 	mUniformLocationMap["u_pointLightEnabled"] = -1;
+
+	for(auto& p : mUniformLocationMap) {
+		p.second = glGetUniformLocation(mProgramObject, p.first);
+	}
+
 }
 
 void Scene::bindAttributes()
@@ -141,10 +323,10 @@ void Scene::setupModelData(const Model& model)
 			&model.getIndices()[0], GL_STATIC_DRAW);
 }
 
-const Common::Texture& Scene::getModelTexture(const char* mname) const
+boost::shared_ptr<Common::Texture> Scene::getModelTexture(const std::string& mname) const
 {
-	auto it = mTextures.find(mname);
-	if(it == mTextures.end()) {
+	auto it = mMeshInstanceTextures.find(mname);
+	if(it == mMeshInstanceTextures.end()) {
 		assert(0);
 		throw std::runtime_error("Couldn't find texture for model");
 	} else {
@@ -162,17 +344,19 @@ void Scene::addSkyBox()
 	/* TODO */
 }
 
-void Scene::setDirectionalLight(const Vector3& dir, const Color& col)
+Light& Scene::getAmbientLight()
 {
-	mDirectionalLight.setDirection(dir);
-	mDirectionalLight.setColor(col);
-	mDirectionalLight.setState(true);
+	return mAmbientLight;
 }
 
-void Scene::setAmbientLight(const Color& col)
+DirectionalLight& Scene::getDirectionalLight()
 {
-	mAmbientLight.setColor(col);
-	mAmbientLight.setState(true);
+	return mDirectionalLight;
+}
+
+PointLight& Scene::getPointLight()
+{
+	return mPointLight;
 }
 
 void Scene::addQuad(const Vector3& p1,
@@ -230,35 +414,33 @@ void Scene::render()
 		auto at = mPointLight.getAttenuation();
 		auto col = mPointLight.getColor();
 		glUniform3f(mUniformLocationMap["u_pointLightAttenuation"], at.x, at.y, at.z);
-		glUniform3f(mUniformLocationMap["u_pointLightColor"], col.r, col.g, col.b);
+		glUniform3f(mUniformLocationMap["u_pointLightColor"], col.x, col.y, col.z);
 	}
 
 	if(mDirectionalLight.isOn()) {
-		glUniform3f(mUniformLocationMap["u_directionalLightColor"], 1.0f, 1.0f, 1.0f);
+		auto col = mDirectionalLight.getColor();
+		glUniform3f(mUniformLocationMap["u_directionalLightColor"], col.x, col.y, col.z);
 	}
 
 	if(mAmbientLight.isOn()) {
 		auto col = mAmbientLight.getColor();
-		glUniform3f(mUniformLocationMap["u_ambientLight"], col.r, col.g, col.b);
+		glUniform3f(mUniformLocationMap["u_ambientLight"], col.x, col.y, col.z);
 	}
 
-	for(auto mi : mMeshInstances) {
-		if(mi.getModel().isTextured()) {
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, getModelTexture("TODO").getTexture());
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-			glUniform1i(mUniformLocationMap["s_texture"], 0);
-		} else {
-			/* TODO: read color data */
-		}
+	for(auto& mi : mMeshInstances) {
+		/* TODO: add support for vertex colors. */
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, getModelTexture(mi.first)->getTexture());
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glUniform1i(mUniformLocationMap["s_texture"], 0);
 
-		updateMVPMatrix(mi);
+		updateMVPMatrix(*mi.second);
 
 		if(mPointLight.isOn()) {
 			// inverse translation matrix
 			Vector3 plpos(mPointLight.getPosition());
-			Vector3 plposrel = mi.getPosition() - plpos;
+			Vector3 plposrel = mi.second->getPosition() - plpos;
 			glUniform3f(mUniformLocationMap["u_pointLightPosition"],
 					plposrel.x, plposrel.y, plposrel.z);
 		}
@@ -266,16 +448,66 @@ void Scene::render()
 		if(mDirectionalLight.isOn()) {
 			// inverse rotation matrix (normal matrix)
 			Vector3 dir = mDirectionalLight.getDirection();
-			auto col = mDirectionalLight.getColor();
 			glUniform3f(mUniformLocationMap["u_directionalLightDirection"], dir.x, dir.y, dir.z);
-			glUniform3f(mUniformLocationMap["u_directionalLightColor"], col.r, col.g, col.b);
 		}
 
-		glDrawElements(GL_TRIANGLES, mi.getModel().getIndices().size(),
+		glDrawElements(GL_TRIANGLES, mi.second->getModel().getIndices().size(),
 				GL_UNSIGNED_SHORT, NULL);
 	}
 }
 
+void Scene::addTexture(const std::string& name, const std::string& filename)
+{
+	if(mTextures.find(name) != mTextures.end()) {
+		throw std::runtime_error("Tried adding an already existing texture");
+	} else {
+		mTextures.insert({name, HelperFunctions::loadTexture(filename)});
+	}
+}
+
+void Scene::addModel(const std::string& name, const std::string& filename)
+{
+	if(mModels.find(name) != mModels.end()) {
+		throw std::runtime_error("Tried adding a model with an already existing name");
+	} else {
+		auto m = boost::shared_ptr<Model>(new Model(filename));
+		mModels.insert({name, m});
+		setupModelData(*m);
+	}
+}
+
+boost::shared_ptr<Model> Scene::getModel(const std::string& name)
+{
+	auto it = mModels.find(name);
+	if(it == mModels.end()) {
+		throw std::runtime_error("Tried getting a non-existing model\n");
+	} else {
+		return it->second;
+	}
+}
+
+boost::shared_ptr<MeshInstance> Scene::addMeshInstance(const std::string& name,
+		const std::string& modelname, const std::string& texturename)
+{
+	if(mMeshInstances.find(name) != mMeshInstances.end()) {
+		throw std::runtime_error("Tried adding a mesh instance with an already existing name");
+	}
+
+	auto modelit = mModels.find(modelname);
+	if(modelit == mModels.end())
+		throw std::runtime_error("Tried getting a non-existing model\n");
+
+	auto textit = mTextures.find(texturename);
+	if(textit == mTextures.end())
+		throw std::runtime_error("Tried getting a non-existing texture\n");
+
+	auto mi = boost::shared_ptr<MeshInstance>(new MeshInstance(*modelit->second));
+	mMeshInstances.insert({name, mi});
+
+	mMeshInstanceTextures.insert({name, textit->second});
+
+	return mi;
+}
 
 }
 

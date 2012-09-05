@@ -77,7 +77,7 @@ GLuint HelperFunctions::loadShader(GLenum type, const char* src)
 		if(infoLen > 1) {
 			char* infoLog = new char[infoLen];
 			glGetShaderInfoLog(shader, infoLen, NULL, infoLog);
-			std::cerr << "Error compiling shader: " << infoLog << "\n";
+			std::cerr << "Error compiling " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << " shader: " << infoLog << "\n";
 			delete[] infoLog;
 		}
 
@@ -94,11 +94,11 @@ void HelperFunctions::enableDepthTest()
 	glDepthFunc(GL_LEQUAL);
 }
 
-GLuint HelperFunctions::loadTexture(const char* filename)
+boost::shared_ptr<Texture> HelperFunctions::loadTexture(const std::string& filename)
 {
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-	GLuint texture = Texture::loadTexture(filename);
-	glBindTexture(GL_TEXTURE_2D, texture);
+	boost::shared_ptr<Texture> texture(new Texture(filename.c_str()));
+	glBindTexture(GL_TEXTURE_2D, texture->getTexture());
 	if (GLEW_VERSION_3_0) {
 		glGenerateMipmap(GL_TEXTURE_2D);
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);

@@ -164,7 +164,7 @@ class Textures : public Camera {
 	protected:
 		void setupTexturing();
 
-		GLuint mTexID;
+		boost::shared_ptr<Texture> mTexture;
 		Model mModel;
 		bool mUseVBOs;
 };
@@ -532,14 +532,14 @@ void Textures::postInit()
 
 void Textures::setupTexturing()
 {
-	mTexID = HelperFunctions::loadTexture("snow.jpg");
+	mTexture = HelperFunctions::loadTexture("snow.jpg");
 	glEnable(GL_TEXTURE_2D);
 }
 
 void Textures::draw()
 {
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, mTexID);
+	glBindTexture(GL_TEXTURE_2D, mTexture->getTexture());
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glUniform1i(mUniformLocationMap["s_texture"], 0);
@@ -695,7 +695,7 @@ const char* PointLight::getVertexShaderFilename()
 
 const char* PointLight::getFragmentShaderFilename()
 {
-	return "pointlight.frag";
+	return "scene.frag";
 }
 
 void PointLight::draw()

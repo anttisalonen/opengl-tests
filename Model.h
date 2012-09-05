@@ -15,12 +15,11 @@
 
 class Model {
 	public:
-		Model(const char* filename);
+		Model(const std::string& filename);
 		const std::vector<GLfloat>& getVertexCoords() const;
 		const std::vector<GLfloat>& getTexCoords() const;
 		const std::vector<GLushort> getIndices() const;
 		const std::vector<GLfloat>& getNormals() const;
-		bool isTextured() const;
 
 	private:
 		std::vector<GLfloat> mVertexCoords;
@@ -32,19 +31,28 @@ class Model {
 		const aiScene* mScene;
 };
 
-class MeshInstance {
+class Movable {
+	public:
+		Movable();
+		Movable(const Common::Vector3& pos);
+		void setPosition(const Common::Vector3& p);
+		const Common::Vector3& getPosition() const;
+		void move(const Common::Vector3& v);
+
+	protected:
+		Common::Vector3 mPosition;
+};
+
+class MeshInstance : public Movable {
 	public:
 		MeshInstance(const Model& m);
-		const Common::Vector3& getPosition() const;
 		const Common::Matrix44& getRotation() const;
-		void setPosition(const Common::Vector3& v);
 		void setRotationFromEuler(const Common::Vector3& v);
 		void setRotation(const Common::Matrix44& m);
 		const Model& getModel() const;
 
 	private:
 		const Model& mModel;
-		Common::Vector3 mPosition;
 		Common::Matrix44 mRotation;
 };
 

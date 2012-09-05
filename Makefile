@@ -1,9 +1,9 @@
 CXX      = clang++
 CXXFLAGS = -std=c++11 -Wall -Werror $(shell sdl-config --cflags) -O2
-LDFLAGS  = $(shell sdl-config --libs) -lSDL_image -lGL -lGLEW -lassimp
+LDFLAGS  = $(shell sdl-config --libs) -lSDL_image -lSDL_ttf -lGL -lGLEW -lassimp
 AR       = ar
 
-default: triangle cube Scene.o
+default: triangle cube SceneCube
 
 
 COMMONDIR = libcommon
@@ -22,6 +22,13 @@ GLCOMMONLIB = libglcommon.a
 $(GLCOMMONLIB): $(GLCOMMONOBJS)
 	$(AR) rcs $(GLCOMMONLIB) $(GLCOMMONOBJS)
 
+LIBSCENESRCS = Scene.cpp
+LIBSCENEOBJS = $(LIBSCENESRCS:.cpp=.o)
+LIBSCENELIB = libscene.a
+
+$(LIBSCENELIB): $(LIBSCENEOBJS)
+	$(AR) rcs $(LIBSCENELIB) $(LIBSCENEOBJS)
+
 
 
 triangle: $(COMMONLIB) $(GLCOMMONLIB) triangle.cpp
@@ -30,11 +37,13 @@ triangle: $(COMMONLIB) $(GLCOMMONLIB) triangle.cpp
 cube: $(COMMONLIB) $(GLCOMMONLIB) cube.cpp
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o cube cube.cpp $(GLCOMMONLIB) $(COMMONLIB)
 
-Scene.o: Scene.cpp
+SceneCube: $(COMMONLIB) $(GLCOMMONLIB) $(LIBSCENELIB) SceneCube.cpp
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o SceneCube SceneCube.cpp $(LIBSCENELIB) $(GLCOMMONLIB) $(COMMONLIB)
 
 clean:
 	rm -rf cube
 	rm -rf triangle
+	rm -rf SceneCube
 	rm -rf libcommon/*.a
 	rm -rf libcommon/*.o
 	rm -rf *.o

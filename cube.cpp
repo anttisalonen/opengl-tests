@@ -64,7 +64,7 @@ class Camera : public App {
 		bool mDirectionalLightEnabled;
 		bool mPointLightEnabled;
 
-		GLuint mTexID;
+		boost::shared_ptr<Common::Texture> mTexture;
 
 		Matrix44 mInverseModelMatrix;
 		Matrix44 mModelMatrix;
@@ -279,18 +279,18 @@ void Camera::handleMouseMove(int xdiff, int ydiff)
 
 void Camera::setupTexturing()
 {
-	mTexID = HelperFunctions::loadTexture("snow.jpg");
+	mTexture = HelperFunctions::loadTexture("snow.jpg");
 	glEnable(GL_TEXTURE_2D);
 }
 
 const char* Camera::getVertexShaderFilename()
 {
-	return "cube.vert";
+	return "scene.vert";
 }
 
 const char* Camera::getFragmentShaderFilename()
 {
-	return "pointlight.frag";
+	return "scene.frag";
 }
 
 void Camera::postInit()
@@ -364,7 +364,7 @@ void Camera::draw()
 	}
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, mTexID);
+	glBindTexture(GL_TEXTURE_2D, mTexture->getTexture());
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glUniform1i(mUniformLocationMap["s_texture"], 0);

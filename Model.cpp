@@ -7,7 +7,7 @@
 
 using namespace Common;
 
-Model::Model(const char* filename)
+Model::Model(const std::string& filename)
 {
 	mScene = mImporter.ReadFile(filename,
 			aiProcess_CalcTangentSpace |
@@ -83,9 +83,28 @@ const std::vector<GLfloat>& Model::getNormals() const
 	return mNormals;
 }
 
-bool Model::isTextured() const
+Movable::Movable()
 {
-	return !mTexCoords.empty();
+}
+
+Movable::Movable(const Common::Vector3& pos)
+	: mPosition(pos)
+{
+}
+
+void Movable::setPosition(const Common::Vector3& p)
+{
+	mPosition = p;
+}
+
+const Common::Vector3& Movable::getPosition() const
+{
+	return mPosition;
+}
+
+void Movable::move(const Common::Vector3& v)
+{
+	mPosition += v;
 }
 
 
@@ -94,19 +113,9 @@ MeshInstance::MeshInstance(const Model& m)
 {
 }
 
-const Vector3& MeshInstance::getPosition() const
-{
-	return mPosition;
-}
-
 const Matrix44& MeshInstance::getRotation() const
 {
 	return mRotation;
-}
-
-void MeshInstance::setPosition(const Vector3& v)
-{
-	mPosition = v;
 }
 
 void MeshInstance::setRotationFromEuler(const Vector3& v)
